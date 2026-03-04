@@ -1,11 +1,10 @@
 fastapi
 uvicorn[standard]
 python-multipart
-anthropic
-opencv-python
+opencv-python-headless
 numpy
 shapely
-trimesh[easy]
+trimesh
 python-dotenv
 pydantic-settings
 

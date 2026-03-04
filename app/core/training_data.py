@@ -55,9 +55,8 @@ def save_plate_images(
     Path to the session directory (for logging).
     """
     run_dir = _TRAINING_ROOT / session_id
-    run_dir.mkdir(parents=True, exist_ok=True)
-
     try:
+        run_dir.mkdir(parents=True, exist_ok=True)
         cv2.imwrite(str(run_dir / "corrected.jpg"), corrected_img)
         (run_dir / "enhanced.jpg").write_bytes(enhanced_bytes)
         logger.info("Training data — plate images saved: %s", run_dir)
@@ -80,9 +79,8 @@ def save_mask(session_id: str, mask_bytes: bytes) -> None:
     mask_bytes : raw PNG bytes of the binary mask (white = dirty spots).
     """
     run_dir = _TRAINING_ROOT / session_id
-    run_dir.mkdir(parents=True, exist_ok=True)
-
     try:
+        run_dir.mkdir(parents=True, exist_ok=True)
         (run_dir / "mask.png").write_bytes(mask_bytes)
         logger.info("Training data — mask saved: %s", run_dir / "mask.png")
     except Exception as exc:
