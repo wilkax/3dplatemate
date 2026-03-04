@@ -1,0 +1,11 @@
+fastapi
+uvicorn[standard]
+python-multipart
+anthropic
+opencv-python
+numpy
+shapely
+trimesh[easy]
+python-dotenv
+pydantic-settings
+

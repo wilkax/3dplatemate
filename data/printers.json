@@ -1,0 +1,111 @@
+[
+  {
+    "id": "bambu-a1",
+    "name": "Bambu Lab A1",
+    "plate_width_mm": 256,
+    "plate_height_mm": 256
+  },
+  {
+    "id": "bambu-a1-mini",
+    "name": "Bambu Lab A1 Mini",
+    "plate_width_mm": 180,
+    "plate_height_mm": 180
+  },
+  {
+    "id": "bambu-p1s",
+    "name": "Bambu Lab P1S",
+    "plate_width_mm": 256,
+    "plate_height_mm": 256
+  },
+  {
+    "id": "bambu-p1p",
+    "name": "Bambu Lab P1P",
+    "plate_width_mm": 256,
+    "plate_height_mm": 256
+  },
+  {
+    "id": "bambu-x1c",
+    "name": "Bambu Lab X1 Carbon",
+    "plate_width_mm": 256,
+    "plate_height_mm": 256
+  },
+  {
+    "id": "prusa-mk4",
+    "name": "Prusa MK4",
+    "plate_width_mm": 250,
+    "plate_height_mm": 210
+  },
+  {
+    "id": "prusa-mk3s",
+    "name": "Prusa MK3S+",
+    "plate_width_mm": 250,
+    "plate_height_mm": 210
+  },
+  {
+    "id": "prusa-mini",
+    "name": "Prusa MINI+",
+    "plate_width_mm": 180,
+    "plate_height_mm": 180
+  },
+  {
+    "id": "creality-ender3",
+    "name": "Creality Ender 3 / Ender 3 Pro",
+    "plate_width_mm": 220,
+    "plate_height_mm": 220
+  },
+  {
+    "id": "creality-ender3-v2",
+    "name": "Creality Ender 3 V2",
+    "plate_width_mm": 220,
+    "plate_height_mm": 220
+  },
+  {
+    "id": "creality-ender5",
+    "name": "Creality Ender 5 / Ender 5 Plus",
+    "plate_width_mm": 220,
+    "plate_height_mm": 220
+  },
+  {
+    "id": "creality-k1",
+    "name": "Creality K1 / K1 Max",
+    "plate_width_mm": 300,
+    "plate_height_mm": 300
+  },
+  {
+    "id": "ankermake-m5",
+    "name": "AnkerMake M5",
+    "plate_width_mm": 235,
+    "plate_height_mm": 235
+  },
+  {
+    "id": "voron-trident-250",
+    "name": "Voron Trident 250",
+    "plate_width_mm": 250,
+    "plate_height_mm": 250
+  },
+  {
+    "id": "voron-24-300",
+    "name": "Voron 2.4 300",
+    "plate_width_mm": 300,
+    "plate_height_mm": 300
+  },
+  {
+    "id": "voron-24-350",
+    "name": "Voron 2.4 350",
+    "plate_width_mm": 350,
+    "plate_height_mm": 350
+  },
+  {
+    "id": "qidi-x-max3",
+    "name": "QIDI X-Max 3",
+    "plate_width_mm": 325,
+    "plate_height_mm": 315
+  },
+  {
+    "id": "elegoo-neptune4",
+    "name": "Elegoo Neptune 4 Pro",
+    "plate_width_mm": 235,
+    "plate_height_mm": 235
+  }
+]
+

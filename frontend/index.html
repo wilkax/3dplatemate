@@ -1,0 +1,507 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>3D Print Plate Cleaner</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: system-ui, sans-serif; background: #f4f4f5; color: #18181b; min-height: 100vh; display: flex; flex-direction: column; align-items: center; padding: 2rem 1rem; }
+    h1 { font-size: 1.6rem; font-weight: 700; margin-bottom: .25rem; }
+    p.subtitle { color: #71717a; margin-bottom: 2rem; font-size: .95rem; }
+
+    /* ── Step 1 ── */
+    .card { background: #fff; border-radius: 12px; box-shadow: 0 1px 6px rgba(0,0,0,.1); padding: 2rem; width: 100%; max-width: 520px; display: flex; flex-direction: column; gap: 1.25rem; }
+    label { font-size: .875rem; font-weight: 600; display: block; margin-bottom: .35rem; }
+    .drop-zone { border: 2px dashed #d4d4d8; border-radius: 8px; padding: 2rem 1rem; text-align: center; cursor: pointer; transition: border-color .2s, background .2s; }
+    .drop-zone:hover, .drop-zone.over { border-color: #6366f1; background: #eef2ff; }
+    .drop-zone input[type=file] { display: none; }
+    .drop-zone span { color: #71717a; font-size: .875rem; }
+    .drop-zone strong { color: #6366f1; }
+    #preview { max-width: 100%; max-height: 220px; border-radius: 6px; margin-top: .75rem; display: none; }
+    .radio-group { display: flex; gap: 1rem; }
+    .radio-group label { font-weight: 400; display: flex; align-items: center; gap: .4rem; cursor: pointer; }
+    select, input[type=number] { width: 100%; border: 1px solid #d4d4d8; border-radius: 6px; padding: .5rem .75rem; font-size: .9rem; background: #fafafa; }
+    select:focus, input[type=number]:focus { outline: 2px solid #6366f1; border-color: transparent; }
+    .row { display: flex; gap: .75rem; }
+    .row > div { flex: 1; }
+    #manual-section { display: none; }
+
+    /* ── Step 2 ── */
+    #step2 { display: none; width: 100%; max-width: 1100px; }
+    .step2-layout { display: flex; gap: 1.5rem; align-items: flex-start; }
+    .canvas-area { flex: 1; min-width: 0; }
+    .canvas-wrapper { position: relative; display: block; width: 100%; line-height: 0; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 6px rgba(0,0,0,.15); cursor: crosshair; }
+    #bgCanvas    { display: block; width: 100%; height: auto; }
+    #paintCanvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+    #guideCanvas { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+
+    .tool-group { display: flex; flex-direction: column; gap: .4rem; }
+
+    .controls { background: #fff; border-radius: 12px; box-shadow: 0 1px 6px rgba(0,0,0,.1); padding: 1.5rem; width: 220px; flex-shrink: 0; display: flex; flex-direction: column; gap: 1rem; }
+    .controls h2 { font-size: 1rem; font-weight: 700; }
+    .controls p  { font-size: .8rem; color: #71717a; line-height: 1.4; }
+    .controls label { font-size: .8rem; font-weight: 600; margin-bottom: .2rem; }
+    .controls input[type=range] { width: 100%; accent-color: #6366f1; }
+    .brush-preview { width: 100%; height: 48px; display: flex; align-items: center; justify-content: center; }
+    .brush-dot { background: rgba(239,68,68,.6); border-radius: 50%; }
+
+    .btn { border: none; border-radius: 8px; padding: .65rem 1rem; font-size: .9rem; font-weight: 600; cursor: pointer; transition: background .2s, opacity .2s; width: 100%; }
+    .btn:disabled { opacity: .45; cursor: not-allowed; }
+    .btn-primary  { background: #6366f1; color: #fff; }
+    .btn-primary:hover:not(:disabled) { background: #4f46e5; }
+    .btn-danger   { background: #ef4444; color: #fff; }
+    .btn-danger:hover:not(:disabled)  { background: #dc2626; }
+    .btn-ghost    { background: #f4f4f5; color: #18181b; }
+    .btn-ghost:hover:not(:disabled)   { background: #e4e4e7; }
+    .btn-active   { outline: 2px solid #6366f1; }
+
+    /* shared status */
+    .status-box { border-radius: 8px; padding: .75rem 1rem; font-size: .85rem; display: none; }
+    .status-box.loading { background: #eff6ff; color: #1d4ed8; }
+    .status-box.error   { background: #fef2f2; color: #b91c1c; }
+    .status-box.success { background: #f0fdf4; color: #166534; }
+    .spinner { display: inline-block; width: 1em; height: 1em; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: spin .7s linear infinite; vertical-align: middle; margin-right: .4rem; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    @media (max-width: 640px) {
+      .step2-layout { flex-direction: column; }
+      .controls { width: 100%; flex-direction: row; flex-wrap: wrap; }
+      .controls h2, .controls p { width: 100%; }
+    }
+  </style>
+</head>
+<body>
+  <h1>🖨 3D Print Plate Cleaner</h1>
+  <p class="subtitle">Photograph your plate → paint dirty spots → get a clean STL</p>
+
+  <!-- ── Step 1: Upload ── -->
+  <div id="step1">
+    <div class="card">
+      <form id="prepareForm">
+        <div>
+          <label>Build plate photo</label>
+          <div class="drop-zone" id="dropZone">
+            <input type="file" id="imageInput" accept="image/jpeg,image/png,image/webp" required />
+            <span>Drag &amp; drop or <strong>click to browse</strong><br>JPEG · PNG · WEBP</span>
+            <img id="preview" alt="Preview" />
+          </div>
+        </div>
+
+        <div>
+          <label>Printer / plate size</label>
+          <div class="radio-group">
+            <label><input type="radio" name="mode" value="list" checked /> Select printer</label>
+            <label><input type="radio" name="mode" value="manual" /> Enter manually</label>
+          </div>
+        </div>
+
+        <div id="list-section">
+          <select id="printerSelect">
+            <option value="">Loading printers…</option>
+          </select>
+        </div>
+
+        <div id="manual-section">
+          <div class="row">
+            <div><label>Width (mm)</label><input type="number" id="plateWidth" min="1" max="1000" step="0.1" placeholder="e.g. 235" /></div>
+            <div><label>Height (mm)</label><input type="number" id="plateHeight" min="1" max="1000" step="0.1" placeholder="e.g. 235" /></div>
+          </div>
+        </div>
+
+        <button type="submit" class="btn btn-primary" id="prepareBtn">Detect &amp; Prepare Image</button>
+      </form>
+      <div id="status1" class="status-box"></div>
+    </div>
+  </div>
+
+  <!-- ── Step 2: Paint ── -->
+  <div id="step2">
+    <div class="step2-layout">
+
+      <div class="canvas-area">
+        <div class="canvas-wrapper" id="canvasWrapper">
+          <canvas id="bgCanvas"></canvas>
+          <canvas id="paintCanvas"></canvas>
+          <canvas id="guideCanvas"></canvas>
+        </div>
+      </div>
+
+      <div class="controls">
+        <h2>Mark dirty spots</h2>
+        <p>Brush: paint freely. Polygon: tap corners — fill is automatic. Eraser: remove paint.</p>
+
+        <div>
+          <label>Tool</label>
+          <div class="tool-group">
+            <button class="btn btn-ghost btn-active" id="brushBtn">✏️ Brush</button>
+            <button class="btn btn-ghost" id="polygonBtn">⬡ Polygon</button>
+            <button class="btn btn-ghost" id="eraserBtn">⬜ Eraser</button>
+          </div>
+        </div>
+
+        <div id="brushSizeSection">
+          <label>Brush size</label>
+          <input type="range" id="brushSize" min="3" max="120" value="20" />
+          <div class="brush-preview"><div class="brush-dot" id="brushDot"></div></div>
+        </div>
+
+        <button class="btn btn-ghost" id="clearBtn">🗑 Clear all</button>
+
+        <hr style="border:none;border-top:1px solid #e4e4e7" />
+
+        <button class="btn btn-primary" id="generateBtn">Generate STL</button>
+        <button class="btn btn-ghost" id="backBtn">← Start over</button>
+
+        <div id="status2" class="status-box"></div>
+      </div>
+
+    </div>
+  </div>
+
+<script>
+// ─── State ────────────────────────────────────────────────────────────────────
+let plateWidthMm = 0, plateHeightMm = 0, sessionId = null;
+let mode = 'brush';       // 'brush' | 'polygon' | 'eraser'
+let isDrawing = false;
+let lastX = 0, lastY = 0;
+let polyPoints = [];      // polygon tool: accumulated vertices
+
+const POLY_CLOSE_RADIUS = 18; // canvas px — snap-to-close distance
+
+// ─── Elements ─────────────────────────────────────────────────────────────────
+const step1            = document.getElementById('step1');
+const step2            = document.getElementById('step2');
+const dropZone         = document.getElementById('dropZone');
+const imageInput       = document.getElementById('imageInput');
+const preview          = document.getElementById('preview');
+const printerSel       = document.getElementById('printerSelect');
+const listSection      = document.getElementById('list-section');
+const manualSec        = document.getElementById('manual-section');
+const prepareBtn       = document.getElementById('prepareBtn');
+const status1          = document.getElementById('status1');
+
+const bgCanvas         = document.getElementById('bgCanvas');
+const paintCanvas      = document.getElementById('paintCanvas');
+const guideCanvas      = document.getElementById('guideCanvas');
+const bgCtx            = bgCanvas.getContext('2d');
+const paintCtx         = paintCanvas.getContext('2d');
+const guideCtx         = guideCanvas.getContext('2d');
+const brushSlider      = document.getElementById('brushSize');
+const brushDot         = document.getElementById('brushDot');
+const brushSizeSection = document.getElementById('brushSizeSection');
+const brushBtn         = document.getElementById('brushBtn');
+const polygonBtn       = document.getElementById('polygonBtn');
+const eraserBtn        = document.getElementById('eraserBtn');
+const clearBtn         = document.getElementById('clearBtn');
+const generateBtn      = document.getElementById('generateBtn');
+const backBtn          = document.getElementById('backBtn');
+const status2          = document.getElementById('status2');
+
+// ─── Step 1 setup ─────────────────────────────────────────────────────────────
+fetch('/api/v1/printers').then(r => r.json()).then(printers => {
+  printerSel.innerHTML = '<option value="">— select a printer —</option>' +
+    printers.map(p => `<option value="${p.id}">${p.name} (${p.plate_width_mm}×${p.plate_height_mm} mm)</option>`).join('');
+}).catch(() => { printerSel.innerHTML = '<option value="">Failed to load — use manual mode</option>'; });
+
+document.querySelectorAll('input[name=mode]').forEach(r => r.addEventListener('change', e => {
+  const manual = e.target.value === 'manual';
+  listSection.style.display = manual ? 'none' : '';
+  manualSec.style.display   = manual ? '' : 'none';
+}));
+
+dropZone.addEventListener('click', () => imageInput.click());
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('over'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('over'));
+dropZone.addEventListener('drop', e => { e.preventDefault(); dropZone.classList.remove('over'); setFile(e.dataTransfer.files[0]); });
+imageInput.addEventListener('change', () => setFile(imageInput.files[0]));
+
+function setFile(file) {
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => { preview.src = e.target.result; preview.style.display = 'block'; };
+  reader.readAsDataURL(file);
+}
+
+document.getElementById('prepareForm').addEventListener('submit', async e => {
+  e.preventDefault();
+  const file = imageInput.files[0];
+  if (!file) { showStatus(status1, 'error', 'Please select an image.'); return; }
+
+  const isManual = document.querySelector('input[name=mode]:checked').value === 'manual';
+  const fd = new FormData();
+  fd.append('image', file);
+
+  if (isManual) {
+    const w = document.getElementById('plateWidth').value;
+    const h = document.getElementById('plateHeight').value;
+    if (!w || !h) { showStatus(status1, 'error', 'Please enter both plate dimensions.'); return; }
+    fd.append('plate_width_mm', w);
+    fd.append('plate_height_mm', h);
+  } else {
+    const id = printerSel.value;
+    if (!id) { showStatus(status1, 'error', 'Please select a printer.'); return; }
+    fd.append('printer_id', id);
+  }
+
+  showStatus(status1, 'loading', '<span class="spinner"></span> Detecting plate and correcting perspective…');
+  prepareBtn.disabled = true;
+
+  try {
+    const resp = await fetch('/api/v1/prepare', { method: 'POST', body: fd });
+    const data = await resp.json();
+    if (!resp.ok) { showStatus(status1, 'error', `Error ${resp.status}: ${data.detail || resp.statusText}`); return; }
+
+    plateWidthMm  = data.plate_width_mm;
+    plateHeightMm = data.plate_height_mm;
+    sessionId     = data.session_id;
+
+    const img = new Image();
+    img.onload = () => {
+      bgCanvas.width     = img.width;
+      bgCanvas.height    = img.height;
+      paintCanvas.width  = img.width;
+      paintCanvas.height = img.height;
+      guideCanvas.width  = img.width;
+      guideCanvas.height = img.height;
+      bgCtx.drawImage(img, 0, 0);
+      paintCtx.clearRect(0, 0, paintCanvas.width, paintCanvas.height);
+      clearGuide();
+      polyPoints = [];
+      setMode('brush');
+      step1.style.display = 'none';
+      step2.style.display = 'block';
+      hideStatus(status2);
+    };
+    img.src = 'data:image/jpeg;base64,' + data.image;
+
+  } catch (err) {
+    showStatus(status1, 'error', `Network error: ${err.message}`);
+  } finally {
+    prepareBtn.disabled = false;
+  }
+});
+
+// ─── Brush preview ────────────────────────────────────────────────────────────
+function updateBrushDot() {
+  const size = parseInt(brushSlider.value);
+  const displayPx = Math.max(4, Math.min(size * (600 / (bgCanvas.width || 600)), 80));
+  brushDot.style.width  = displayPx + 'px';
+  brushDot.style.height = displayPx + 'px';
+}
+brushSlider.addEventListener('input', updateBrushDot);
+updateBrushDot();
+
+// ─── Canvas coordinate helper ─────────────────────────────────────────────────
+function canvasPos(e) {
+  const rect = paintCanvas.getBoundingClientRect();
+  const scaleX = paintCanvas.width  / rect.width;
+  const scaleY = paintCanvas.height / rect.height;
+  const src = e.touches ? e.touches[0] : e;
+  return {
+    x: (src.clientX - rect.left) * scaleX,
+    y: (src.clientY - rect.top)  * scaleY,
+  };
+}
+
+// ─── Brush / eraser drawing ───────────────────────────────────────────────────
+function startBrush(pos) {
+  isDrawing = true;
+  lastX = pos.x; lastY = pos.y;
+  paintCtx.globalCompositeOperation = mode === 'eraser' ? 'destination-out' : 'source-over';
+  paintCtx.fillStyle = 'rgba(239,68,68,0.65)';
+  paintCtx.beginPath();
+  paintCtx.arc(pos.x, pos.y, parseInt(brushSlider.value), 0, Math.PI * 2);
+  paintCtx.fill();
+}
+
+function continueBrush(pos) {
+  if (!isDrawing) return;
+  paintCtx.globalCompositeOperation = mode === 'eraser' ? 'destination-out' : 'source-over';
+  paintCtx.strokeStyle = 'rgba(239,68,68,0.65)';
+  paintCtx.lineWidth   = parseInt(brushSlider.value) * 2;
+  paintCtx.lineCap     = 'round';
+  paintCtx.lineJoin    = 'round';
+  paintCtx.beginPath();
+  paintCtx.moveTo(lastX, lastY);
+  paintCtx.lineTo(pos.x, pos.y);
+  paintCtx.stroke();
+  lastX = pos.x; lastY = pos.y;
+}
+
+// ─── Polygon tool ─────────────────────────────────────────────────────────────
+function addPolyPoint(pos) {
+  if (polyPoints.length >= 3) {
+    const f = polyPoints[0];
+    const d = Math.hypot(pos.x - f.x, pos.y - f.y);
+    if (d < POLY_CLOSE_RADIUS) { commitPolygon(); return; }
+  }
+  polyPoints.push(pos);
+  drawGuide(null);
+}
+
+function commitPolygon() {
+  if (polyPoints.length < 3) { polyPoints = []; clearGuide(); return; }
+  paintCtx.globalCompositeOperation = 'source-over';
+  paintCtx.fillStyle = 'rgba(239,68,68,0.65)';
+  paintCtx.beginPath();
+  paintCtx.moveTo(polyPoints[0].x, polyPoints[0].y);
+  for (let i = 1; i < polyPoints.length; i++) paintCtx.lineTo(polyPoints[i].x, polyPoints[i].y);
+  paintCtx.closePath();
+  paintCtx.fill();
+  polyPoints = [];
+  clearGuide();
+}
+
+function drawGuide(cursor) {
+  clearGuide();
+  if (polyPoints.length === 0) return;
+  const ctx = guideCtx;
+  const canClose = cursor && polyPoints.length >= 3 &&
+    Math.hypot(cursor.x - polyPoints[0].x, cursor.y - polyPoints[0].y) < POLY_CLOSE_RADIUS;
+
+  // Lines between committed points
+  ctx.strokeStyle = 'rgba(99,102,241,0.9)';
+  ctx.lineWidth = 2;
+  ctx.setLineDash([]);
+  ctx.beginPath();
+  ctx.moveTo(polyPoints[0].x, polyPoints[0].y);
+  for (let i = 1; i < polyPoints.length; i++) ctx.lineTo(polyPoints[i].x, polyPoints[i].y);
+  ctx.stroke();
+
+  // Dashed preview line to cursor
+  if (cursor) {
+    ctx.setLineDash([6, 4]);
+    ctx.beginPath();
+    ctx.moveTo(polyPoints[polyPoints.length - 1].x, polyPoints[polyPoints.length - 1].y);
+    ctx.lineTo(cursor.x, cursor.y);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  // Vertex dots
+  polyPoints.forEach((pt, i) => {
+    const isFirst = i === 0;
+    ctx.fillStyle = (isFirst && canClose) ? 'rgba(34,197,94,0.95)' : 'rgba(99,102,241,0.95)';
+    ctx.beginPath();
+    ctx.arc(pt.x, pt.y, isFirst ? 8 : 5, 0, Math.PI * 2);
+    ctx.fill();
+  });
+}
+
+function clearGuide() {
+  guideCtx.clearRect(0, 0, guideCanvas.width, guideCanvas.height);
+}
+
+// ─── Unified canvas events ────────────────────────────────────────────────────
+function onDown(e) {
+  e.preventDefault();
+  const pos = canvasPos(e);
+  if (mode === 'polygon') addPolyPoint(pos);
+  else startBrush(pos);
+}
+
+function onMove(e) {
+  e.preventDefault();
+  const pos = canvasPos(e);
+  if (mode === 'polygon') drawGuide(pos);
+  else continueBrush(pos);
+}
+
+function onUp() { isDrawing = false; }
+
+paintCanvas.addEventListener('mousedown',  onDown);
+paintCanvas.addEventListener('mousemove',  onMove);
+paintCanvas.addEventListener('mouseup',    onUp);
+paintCanvas.addEventListener('mouseleave', onUp);
+paintCanvas.addEventListener('touchstart', onDown, { passive: false });
+paintCanvas.addEventListener('touchmove',  onMove, { passive: false });
+paintCanvas.addEventListener('touchend',   onUp);
+
+// ─── Tool selection ───────────────────────────────────────────────────────────
+function setMode(newMode) {
+  mode = newMode;
+  if (mode !== 'polygon') { polyPoints = []; clearGuide(); }
+  brushBtn.classList.toggle('btn-active',   mode === 'brush');
+  polygonBtn.classList.toggle('btn-active', mode === 'polygon');
+  eraserBtn.classList.toggle('btn-active',  mode === 'eraser');
+  brushSizeSection.style.display = mode === 'polygon' ? 'none' : '';
+}
+
+brushBtn.addEventListener('click',   () => setMode('brush'));
+polygonBtn.addEventListener('click', () => setMode('polygon'));
+eraserBtn.addEventListener('click',  () => setMode(mode === 'eraser' ? 'brush' : 'eraser'));
+
+clearBtn.addEventListener('click', () => {
+  paintCtx.clearRect(0, 0, paintCanvas.width, paintCanvas.height);
+  polyPoints = []; clearGuide();
+});
+
+backBtn.addEventListener('click', () => {
+  step2.style.display = 'none';
+  step1.style.display = '';
+  hideStatus(status1);
+});
+
+// ─── Export mask & generate STL ───────────────────────────────────────────────
+generateBtn.addEventListener('click', async () => {
+  // Build a white-on-black mask from the paint layer
+  const offscreen = document.createElement('canvas');
+  offscreen.width  = paintCanvas.width;
+  offscreen.height = paintCanvas.height;
+  const ctx = offscreen.getContext('2d');
+  ctx.fillStyle = 'black';
+  ctx.fillRect(0, 0, offscreen.width, offscreen.height);
+
+  const paintData = paintCtx.getImageData(0, 0, paintCanvas.width, paintCanvas.height);
+  const maskData  = ctx.createImageData(paintCanvas.width, paintCanvas.height);
+  for (let i = 0; i < paintData.data.length; i += 4) {
+    const v = paintData.data[i + 3] > 10 ? 255 : 0;
+    maskData.data[i] = maskData.data[i+1] = maskData.data[i+2] = v;
+    maskData.data[i+3] = 255;
+  }
+  ctx.putImageData(maskData, 0, 0);
+
+  const blob = await new Promise(res => offscreen.toBlob(res, 'image/png'));
+  if (!blob) { showStatus(status2, 'error', 'Failed to export painted mask.'); return; }
+
+  const fd = new FormData();
+  fd.append('mask', blob, 'mask.png');
+  fd.append('plate_width_mm',  plateWidthMm);
+  fd.append('plate_height_mm', plateHeightMm);
+  if (sessionId) fd.append('session_id', sessionId);
+
+  showStatus(status2, 'loading', '<span class="spinner"></span> Generating STL…');
+  generateBtn.disabled = true;
+
+  try {
+    const resp = await fetch('/api/v1/generate-stl', { method: 'POST', body: fd });
+    if (resp.ok) {
+      const stlBlob = await resp.blob();
+      const url = URL.createObjectURL(stlBlob);
+      const a = document.createElement('a');
+      a.href = url; a.download = 'plate_cleaner.stl'; a.click();
+      URL.revokeObjectURL(url);
+      showStatus(status2, 'success', '✓ STL downloaded! Load it into your slicer.');
+    } else {
+      const data = await resp.json().catch(() => ({}));
+      showStatus(status2, 'error', `Error ${resp.status}: ${data.detail || resp.statusText}`);
+    }
+  } catch (err) {
+    showStatus(status2, 'error', `Network error: ${err.message}`);
+  } finally {
+    generateBtn.disabled = false;
+  }
+});
+
+// ─── Status helpers ───────────────────────────────────────────────────────────
+function showStatus(el, type, html) {
+  el.className = 'status-box ' + type;
+  el.innerHTML = html;
+  el.style.display = 'block';
+}
+function hideStatus(el) { el.style.display = 'none'; }
+</script>
+</body>
+</html>
+
