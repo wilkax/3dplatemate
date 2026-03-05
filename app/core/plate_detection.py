@@ -1,21 +1,21 @@
 """
-OpenCV-based build plate corner detection using color/region segmentation.
+OpenCV-based build plate corner detection.
 
-Strategy (in order of attempt):
-  1. GrabCut — treats image border as background, center as foreground;
-     iteratively segments by color distribution. Works well when the plate
-     is roughly centered and has a different color from the surroundings.
-     Tried with progressively larger border margins.
-  2. Otsu thresholding — automatic brightness-based separation; tried on
-     both normal and inverted grayscale to handle light and dark plates.
-  3. minAreaRect fallback — fits a rectangle to the largest region found
-     by any method; always produces 4 corners.
+Strategy:
+  1. Sample the dominant colour from the image centre — assuming the build plate
+     occupies the middle of the frame, that patch IS the plate surface.
+  2. Build a colour-distance mask in LAB space: pixels within N ΔE units of the
+     sampled plate colour are marked as foreground. Tried at several thresholds.
+  3. Extract every quadrilateral candidate from the mask contours and score each
+     one by how close its centroid is to the image centre.  The most-centred
+     valid quad wins — not just the first one that passes shape checks.
+  4. Fallback: Otsu thresholding (normal then inverted), same centroid scoring.
 
-Every candidate quad is validated before being accepted:
+Validation applied to every candidate:
   - Must be convex
-  - All interior angles between 50° and 130°
+  - All interior angles 50°–130°
   - Must span ≥ 25 % of both image dimensions
-  - Aspect ratio must be within 40 % of the known plate ratio (when provided)
+  - Aspect ratio within 40 % of known plate ratio (when provided)
 """
 
 from __future__ import annotations
@@ -23,12 +23,15 @@ from __future__ import annotations
 import cv2
 import numpy as np
 
-_WORK_MAX_PX = 1000
+_WORK_MAX_PX    = 1000
 _EPSILON_FACTORS = [0.01, 0.02, 0.03, 0.05, 0.08]
-_MIN_AREA_RATIO = 0.05
+_MIN_AREA_RATIO  = 0.05
 
-# GrabCut border margins to try (fraction of image dimension)
-_GRABCUT_MARGINS = [0.08, 0.13, 0.20]
+# Centre patch used to sample the plate colour (fraction of each dimension)
+_CENTER_PATCH_F  = 0.08
+
+# ΔE thresholds to try when building the colour-distance mask (LAB units)
+_COLOR_THRESHOLDS = [20, 30, 40, 55, 70]
 
 
 def _order_corners(pts: np.ndarray) -> np.ndarray:
@@ -103,48 +106,21 @@ def _validate_quad(
     return True
 
 
-def _mask_to_quad(mask: np.ndarray, min_area: float) -> np.ndarray | None:
-    """
-    Extract the largest quadrilateral from a binary mask.
-    Applies morphological cleanup first, then tries multiple epsilon values.
-    Returns a (4, 2) float32 array or None.
-    """
-    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (15, 15))
-    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
-    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
-
-    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    contours = sorted(contours, key=cv2.contourArea, reverse=True)
-
-    for contour in contours[:5]:
-        if cv2.contourArea(contour) < min_area:
-            break
-        perimeter = cv2.arcLength(contour, True)
-        for eps in _EPSILON_FACTORS:
-            approx = cv2.approxPolyDP(contour, eps * perimeter, True)
-            if len(approx) == 4:
-                return approx.reshape(4, 2).astype(np.float32)
-
-    # minAreaRect fallback: always produces 4 corners
-    if contours and cv2.contourArea(contours[0]) >= min_area:
-        rect = cv2.minAreaRect(contours[0])
-        return cv2.boxPoints(rect).astype(np.float32)
-
-    return None
+def _sample_plate_color(img_lab: np.ndarray) -> np.ndarray:
+    """Return the mean LAB colour of the centre patch of the image."""
+    h, w = img_lab.shape[:2]
+    ph = max(1, int(h * _CENTER_PATCH_F))
+    pw = max(1, int(w * _CENTER_PATCH_F))
+    cy, cx = h // 2, w // 2
+    patch = img_lab[cy - ph // 2 : cy + ph // 2, cx - pw // 2 : cx + pw // 2]
+    return patch.reshape(-1, 3).mean(axis=0)
 
 
-def _grabcut_mask(img: np.ndarray, margin: float) -> np.ndarray:
-    """Run GrabCut and return a binary foreground mask."""
-    h, w = img.shape[:2]
-    mx, my = int(w * margin), int(h * margin)
-    rect = (mx, my, w - 2 * mx, h - 2 * my)
-
-    mask = np.zeros((h, w), np.uint8)
-    bgd = np.zeros((1, 65), np.float64)
-    fgd = np.zeros((1, 65), np.float64)
-    cv2.grabCut(img, mask, rect, bgd, fgd, iterCount=5, mode=cv2.GC_INIT_WITH_RECT)
-
-    return np.where((mask == cv2.GC_FGD) | (mask == cv2.GC_PR_FGD), 255, 0).astype(np.uint8)
+def _color_distance_mask(img_lab: np.ndarray, plate_color: np.ndarray, threshold: float) -> np.ndarray:
+    """Binary mask of pixels within `threshold` ΔE of plate_color."""
+    diff = img_lab.astype(np.float32) - plate_color.astype(np.float32)
+    dist = np.sqrt((diff ** 2).sum(axis=2))
+    return (dist <= threshold).astype(np.uint8) * 255
 
 
 def _otsu_mask(gray: np.ndarray, invert: bool = False) -> np.ndarray:
@@ -154,6 +130,57 @@ def _otsu_mask(gray: np.ndarray, invert: bool = False) -> np.ndarray:
         flags = cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU
     _, mask = cv2.threshold(gray, 0, 255, flags)
     return mask
+
+
+def _best_centered_quad(
+    mask: np.ndarray,
+    work_w: int,
+    work_h: int,
+    min_area: float,
+    expected_ratio: float | None = None,
+) -> np.ndarray | None:
+    """
+    Find every quadrilateral in the mask and return the one whose centroid
+    is closest to the image centre, provided it passes validation.
+    """
+    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (15, 15))
+    clean = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
+    clean = cv2.morphologyEx(clean, cv2.MORPH_OPEN, kernel)
+
+    contours, _ = cv2.findContours(clean, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+    img_center = np.array([work_w / 2.0, work_h / 2.0])
+    best_quad  = None
+    best_dist  = float("inf")
+
+    for contour in contours:
+        if cv2.contourArea(contour) < min_area:
+            continue
+
+        # Try polygon approximation at increasing tolerances
+        quad = None
+        perimeter = cv2.arcLength(contour, True)
+        for eps in _EPSILON_FACTORS:
+            approx = cv2.approxPolyDP(contour, eps * perimeter, True)
+            if len(approx) == 4:
+                quad = approx.reshape(4, 2).astype(np.float32)
+                break
+
+        if quad is None:
+            # minAreaRect always produces 4 corners — use as last resort
+            rect = cv2.minAreaRect(contour)
+            quad = cv2.boxPoints(rect).astype(np.float32)
+
+        if not _validate_quad(quad, work_w, work_h, expected_ratio):
+            continue
+
+        centroid = quad.mean(axis=0)
+        dist = np.linalg.norm(centroid - img_center)
+        if dist < best_dist:
+            best_dist = dist
+            best_quad = quad
+
+    return best_quad
 
 
 def detect_plate_corners(
@@ -194,29 +221,26 @@ def detect_plate_corners(
     if plate_width_mm and plate_height_mm:
         expected_ratio = max(plate_width_mm, plate_height_mm) / min(plate_width_mm, plate_height_mm)
 
-    gray = cv2.cvtColor(work, cv2.COLOR_BGR2GRAY)
-    blurred = cv2.GaussianBlur(gray, (7, 7), 0)
+    img_lab  = cv2.cvtColor(work, cv2.COLOR_BGR2LAB).astype(np.float32)
+    gray     = cv2.cvtColor(work, cv2.COLOR_BGR2GRAY)
+    blurred  = cv2.GaussianBlur(gray, (7, 7), 0)
 
+    plate_color = _sample_plate_color(img_lab)
     quad = None
 
-    # ── 1. GrabCut with multiple border margins ───────────────────────────────
-    for margin in _GRABCUT_MARGINS:
-        try:
-            mask = _grabcut_mask(work, margin)
-            candidate = _mask_to_quad(mask, min_area)
-            if candidate is not None and _validate_quad(candidate, work_w, work_h, expected_ratio):
-                quad = candidate
-                break
-        except Exception:
-            continue
+    # ── 1. Colour-distance mask at increasing ΔE thresholds ──────────────────
+    for threshold in _COLOR_THRESHOLDS:
+        mask = _color_distance_mask(img_lab, plate_color, threshold)
+        quad = _best_centered_quad(mask, work_w, work_h, min_area, expected_ratio)
+        if quad is not None:
+            break
 
-    # ── 2. Otsu thresholding (dark plate, then light plate) ───────────────────
+    # ── 2. Otsu fallback (dark plate on light bg, then inverted) ─────────────
     if quad is None:
         for invert in (False, True):
             mask = _otsu_mask(blurred, invert=invert)
-            candidate = _mask_to_quad(mask, min_area)
-            if candidate is not None and _validate_quad(candidate, work_w, work_h, expected_ratio):
-                quad = candidate
+            quad = _best_centered_quad(mask, work_w, work_h, min_area, expected_ratio)
+            if quad is not None:
                 break
 
     if quad is None:
