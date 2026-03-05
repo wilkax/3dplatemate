@@ -480,21 +480,21 @@ def detect_plate_corners(
 
     quad = None
 
-    # ── A. Canny on enhanced saturation channel (plate boundary = max gradient)
-    if quad is None:
-        quad = _first(_canny_candidates(enhanced_sat, work_w, work_h, min_area, expected_ratio))
-
-    # ── B. Hough on enhanced saturation channel ──────────────────────────────
-    if quad is None:
-        quad = _first(_hough_candidates(enhanced_sat, work_w, work_h, min_area, expected_ratio))
-
-    # ── C. Canny on original grayscale ───────────────────────────────────────
+    # ── C. Canny on original grayscale (empirically best) ───────────────────
     if quad is None:
         quad = _first(_canny_candidates(gray, work_w, work_h, min_area, expected_ratio))
+
+    # ── A. Canny on enhanced saturation channel ──────────────────────────────
+    if quad is None:
+        quad = _first(_canny_candidates(enhanced_sat, work_w, work_h, min_area, expected_ratio))
 
     # ── D. Hough on original grayscale ───────────────────────────────────────
     if quad is None:
         quad = _first(_hough_candidates(gray, work_w, work_h, min_area, expected_ratio))
+
+    # ── B. Hough on enhanced saturation channel ──────────────────────────────
+    if quad is None:
+        quad = _first(_hough_candidates(enhanced_sat, work_w, work_h, min_area, expected_ratio))
 
     # ── E. Backprojection on enhanced image ──────────────────────────────────
     if quad is None:
