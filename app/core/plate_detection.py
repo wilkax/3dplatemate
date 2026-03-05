@@ -20,6 +20,8 @@ Validation applied to every candidate:
 
 from __future__ import annotations
 
+import base64
+
 import cv2
 import numpy as np
 
@@ -132,32 +134,35 @@ def _otsu_mask(gray: np.ndarray, invert: bool = False) -> np.ndarray:
     return mask
 
 
-def _best_centered_quad(
-    mask: np.ndarray,
+def _cleanup_mask(mask: np.ndarray) -> np.ndarray:
+    """Morphological close + open to fill holes and remove small blobs."""
+    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (15, 15))
+    clean = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
+    return cv2.morphologyEx(clean, cv2.MORPH_OPEN, kernel)
+
+
+def _find_all_quads(
+    clean_mask: np.ndarray,
     work_w: int,
     work_h: int,
     min_area: float,
     expected_ratio: float | None = None,
-) -> np.ndarray | None:
+) -> list[tuple[np.ndarray, float]]:
     """
-    Find every quadrilateral in the mask and return the one whose centroid
-    is closest to the image centre, provided it passes validation.
-    """
-    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (15, 15))
-    clean = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
-    clean = cv2.morphologyEx(clean, cv2.MORPH_OPEN, kernel)
+    Return all valid quadrilaterals found in an already-cleaned binary mask,
+    sorted by centroid distance to the image centre (closest first).
 
-    contours, _ = cv2.findContours(clean, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    Each element is (quad_array_4x2_float32, centroid_dist_px).
+    """
+    contours, _ = cv2.findContours(clean_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
     img_center = np.array([work_w / 2.0, work_h / 2.0])
-    best_quad  = None
-    best_dist  = float("inf")
+    results: list[tuple[np.ndarray, float]] = []
 
     for contour in contours:
         if cv2.contourArea(contour) < min_area:
             continue
 
-        # Try polygon approximation at increasing tolerances
         quad = None
         perimeter = cv2.arcLength(contour, True)
         for eps in _EPSILON_FACTORS:
@@ -167,20 +172,29 @@ def _best_centered_quad(
                 break
 
         if quad is None:
-            # minAreaRect always produces 4 corners — use as last resort
             rect = cv2.minAreaRect(contour)
             quad = cv2.boxPoints(rect).astype(np.float32)
 
         if not _validate_quad(quad, work_w, work_h, expected_ratio):
             continue
 
-        centroid = quad.mean(axis=0)
-        dist = np.linalg.norm(centroid - img_center)
-        if dist < best_dist:
-            best_dist = dist
-            best_quad = quad
+        dist = float(np.linalg.norm(quad.mean(axis=0) - img_center))
+        results.append((quad, dist))
 
-    return best_quad
+    return sorted(results, key=lambda x: x[1])
+
+
+def _best_centered_quad(
+    mask: np.ndarray,
+    work_w: int,
+    work_h: int,
+    min_area: float,
+    expected_ratio: float | None = None,
+) -> np.ndarray | None:
+    """Return the most-centred valid quad from the mask, or None."""
+    clean = _cleanup_mask(mask)
+    candidates = _find_all_quads(clean, work_w, work_h, min_area, expected_ratio)
+    return candidates[0][0] if candidates else None
 
 
 def detect_plate_corners(
@@ -258,4 +272,175 @@ def detect_plate_corners(
         "bottom_right": corners[2].tolist(),
         "bottom_left":  corners[3].tolist(),
     }
+
+
+# ── Debug helpers ─────────────────────────────────────────────────────────────
+
+def _encode_b64(img: np.ndarray) -> str:
+    """Encode a BGR numpy image to a base64 JPEG string."""
+    _, buf = cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, 88])
+    return base64.b64encode(buf.tobytes()).decode()
+
+
+def _draw_crosshair(img: np.ndarray, cx: int, cy: int, color=(0, 0, 255), size: int = 20) -> None:
+    cv2.line(img, (cx - size, cy), (cx + size, cy), color, 2)
+    cv2.line(img, (cx, cy - size), (cx, cy + size), color, 2)
+    cv2.circle(img, (cx, cy), 6, color, 2)
+
+
+def _draw_quads(img: np.ndarray, candidates: list[tuple[np.ndarray, float]]) -> None:
+    """Draw all candidates; green = winner (index 0), blue = others."""
+    for i, (quad, dist) in enumerate(candidates):
+        color = (0, 200, 0) if i == 0 else (255, 140, 0)
+        thickness = 3 if i == 0 else 1
+        pts = quad.astype(np.int32).reshape(-1, 1, 2)
+        cv2.polylines(img, [pts], True, color, thickness)
+        cx, cy = quad.mean(axis=0).astype(int)
+        cv2.circle(img, (int(cx), int(cy)), 5, color, -1)
+        label = f"#{i} d={dist:.0f}px"
+        cv2.putText(img, label, (int(cx) + 7, int(cy) - 5),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.45, color, 1, cv2.LINE_AA)
+
+
+def detect_plate_corners_debug(
+    image_bytes: bytes,
+    plate_width_mm: float,
+    plate_height_mm: float,
+) -> dict:
+    """
+    Run the full corner detection pipeline and return annotated step images.
+
+    Returns
+    -------
+    {
+        "steps":   [{"title": str, "image": base64_str, "description": str}, ...],
+        "corners": {top_left, top_right, bottom_right, bottom_left} | None,
+        "error":   str | None,
+    }
+    """
+    steps: list[dict] = []
+
+    nparr = np.frombuffer(image_bytes, np.uint8)
+    img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+    if img is None:
+        return {"steps": [], "corners": None, "error": "Could not decode image."}
+
+    orig_h, orig_w = img.shape[:2]
+    scale   = min(_WORK_MAX_PX / orig_w, _WORK_MAX_PX / orig_h, 1.0)
+    work    = cv2.resize(img, (int(orig_w * scale), int(orig_h * scale)))
+    work_h, work_w = work.shape[:2]
+    min_area = work_w * work_h * _MIN_AREA_RATIO
+    expected_ratio = max(plate_width_mm, plate_height_mm) / min(plate_width_mm, plate_height_mm)
+
+    img_lab = cv2.cvtColor(work, cv2.COLOR_BGR2LAB).astype(np.float32)
+    plate_color = _sample_plate_color(img_lab)
+
+    # ── Step 1: original + sampled region ────────────────────────────────────
+    ph = max(1, int(work_h * _CENTER_PATCH_F))
+    pw = max(1, int(work_w * _CENTER_PATCH_F))
+    cy0, cx0 = work_h // 2, work_w // 2
+    vis1 = work.copy()
+    cv2.rectangle(vis1, (cx0 - pw//2, cy0 - ph//2), (cx0 + pw//2, cy0 + ph//2), (0, 230, 230), 2)
+    _draw_crosshair(vis1, work_w // 2, work_h // 2)
+    steps.append({"title": "Step 1 — Input image",
+                  "image": _encode_b64(vis1),
+                  "description": "Cyan box = centre patch sampled for plate colour. Red crosshair = image centre."})
+
+    # ── Step 2: sampled colour swatch ────────────────────────────────────────
+    lab_px = np.array([[[round(plate_color[0]), round(plate_color[1]), round(plate_color[2])]]],
+                      dtype=np.uint8)
+    bgr = cv2.cvtColor(lab_px, cv2.COLOR_LAB2BGR)[0][0]
+    r, g, b = int(bgr[2]), int(bgr[1]), int(bgr[0])
+    swatch = np.full((120, 360, 3), bgr.tolist(), dtype=np.uint8)
+    tc = (0, 0, 0) if r + g + b > 400 else (255, 255, 255)
+    cv2.putText(swatch, f"RGB  ({r}, {g}, {b})", (12, 50), cv2.FONT_HERSHEY_SIMPLEX, 0.8, tc, 2)
+    cv2.putText(swatch, f"LAB  ({plate_color[0]:.0f}, {plate_color[1]:.0f}, {plate_color[2]:.0f})",
+                (12, 90), cv2.FONT_HERSHEY_SIMPLEX, 0.8, tc, 2)
+    steps.append({"title": "Step 2 — Sampled plate colour",
+                  "image": _encode_b64(swatch),
+                  "description": "Dominant colour of the centre patch — ΔE distances are measured from this."})
+
+    # ── Steps 3+: colour-distance masks ──────────────────────────────────────
+    final_quad: np.ndarray | None = None
+
+    for i, threshold in enumerate(_COLOR_THRESHOLDS):
+        raw_mask = _color_distance_mask(img_lab, plate_color, threshold)
+        clean    = _cleanup_mask(raw_mask)
+        candidates = _find_all_quads(clean, work_w, work_h, min_area, expected_ratio)
+
+        # Overlay: matched pixels at full brightness, rest darkened
+        darkened = (work * 0.25).astype(np.uint8)
+        overlay  = np.where(clean[:, :, np.newaxis] > 0, work, darkened)
+        _draw_crosshair(overlay, work_w // 2, work_h // 2)
+        _draw_quads(overlay, candidates)
+
+        pct = int((clean > 0).mean() * 100)
+        n   = len(candidates)
+
+        if n > 0 and final_quad is None:
+            final_quad = candidates[0][0]
+            desc = (f"✅ {pct}% pixels matched · {n} valid quad(s) · "
+                    f"winner (green) {candidates[0][1]:.0f} px from centre")
+        else:
+            suffix = " · already solved at lower threshold" if final_quad is not None else ""
+            desc = f"{pct}% pixels matched · {n} valid quad(s){suffix}"
+
+        steps.append({"title": f"Step {i + 3} — Colour mask ΔE ≤ {threshold}",
+                      "image": _encode_b64(overlay),
+                      "description": desc})
+
+    # ── Otsu fallback ─────────────────────────────────────────────────────────
+    if final_quad is None:
+        gray    = cv2.cvtColor(work, cv2.COLOR_BGR2GRAY)
+        blurred = cv2.GaussianBlur(gray, (7, 7), 0)
+        step_n  = len(_COLOR_THRESHOLDS) + 3
+
+        for invert in (False, True):
+            mask       = _otsu_mask(blurred, invert=invert)
+            clean      = _cleanup_mask(mask)
+            candidates = _find_all_quads(clean, work_w, work_h, min_area, expected_ratio)
+            label      = "inverted" if invert else "normal"
+
+            darkened = (work * 0.25).astype(np.uint8)
+            overlay  = np.where(clean[:, :, np.newaxis] > 0, work, darkened)
+            _draw_crosshair(overlay, work_w // 2, work_h // 2)
+            _draw_quads(overlay, candidates)
+
+            if candidates and final_quad is None:
+                final_quad = candidates[0][0]
+                desc = f"✅ Otsu ({label}) · {len(candidates)} valid quad(s) · winner found"
+            else:
+                desc = f"Otsu ({label}) · {len(candidates)} valid quad(s)"
+
+            steps.append({"title": f"Step {step_n} — Otsu fallback ({label})",
+                          "image": _encode_b64(overlay),
+                          "description": desc})
+            step_n += 1
+
+    # ── Final result ──────────────────────────────────────────────────────────
+    if final_quad is not None:
+        result = work.copy()
+        pts = final_quad.astype(np.int32).reshape(-1, 1, 2)
+        cv2.polylines(result, [pts], True, (0, 220, 0), 3)
+        for pt in final_quad:
+            cv2.circle(result, tuple(pt.astype(int)), 9, (0, 220, 0), -1)
+        _draw_crosshair(result, work_w // 2, work_h // 2)
+        steps.append({"title": "Final result — detected plate boundary",
+                      "image": _encode_b64(result),
+                      "description": "Green polygon = plate corners passed to perspective correction."})
+
+        corners = _order_corners(final_quad / scale)
+        return {
+            "steps": steps,
+            "corners": {
+                "top_left":     corners[0].tolist(),
+                "top_right":    corners[1].tolist(),
+                "bottom_right": corners[2].tolist(),
+                "bottom_left":  corners[3].tolist(),
+            },
+            "error": None,
+        }
+
+    return {"steps": steps, "corners": None,
+            "error": "No valid plate-shaped region found in any detection step."}
 

@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Detection Debug — 3D Plate Mate</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: system-ui, sans-serif; background: #0f1117; color: #e2e8f0; min-height: 100vh; padding: 24px; }
+  h1   { font-size: 1.4rem; font-weight: 700; margin-bottom: 4px; }
+  .badge { display:inline-block; background:#1e3a5f; color:#7dd3fc; font-size:.78rem;
+           padding:2px 10px; border-radius:20px; margin-left:8px; vertical-align:middle; }
+  .subtitle { color:#64748b; font-size:.88rem; margin-bottom:24px; }
+
+  /* Upload zone */
+  #drop-zone { border:2px dashed #334155; border-radius:12px; padding:40px 24px;
+               text-align:center; cursor:pointer; transition:border-color .2s, background .2s; }
+  #drop-zone:hover, #drop-zone.drag { border-color:#3b82f6; background:#1e293b; }
+  #drop-zone p { color:#94a3b8; margin-bottom:8px; }
+  #drop-zone strong { color:#e2e8f0; }
+  #file-input { display:none; }
+
+  /* Button */
+  #run-btn { margin-top:16px; padding:12px 32px; background:#3b82f6; color:#fff;
+             border:none; border-radius:8px; font-size:1rem; font-weight:600;
+             cursor:pointer; transition:background .2s; }
+  #run-btn:hover:not(:disabled) { background:#2563eb; }
+  #run-btn:disabled { background:#334155; color:#64748b; cursor:not-allowed; }
+
+  /* Status bar */
+  #status { margin-top:12px; font-size:.88rem; color:#94a3b8; min-height:20px; }
+
+  /* Steps */
+  #steps { margin-top:32px; display:flex; flex-direction:column; gap:24px; }
+  .step  { background:#1e293b; border:1px solid #334155; border-radius:12px; overflow:hidden; }
+  .step.success { border-color:#22c55e; }
+  .step.failure { border-color:#ef4444; }
+  .step-header { padding:14px 18px; border-bottom:1px solid #334155; display:flex;
+                 align-items:baseline; gap:10px; }
+  .step-header h2 { font-size:1rem; font-weight:600; }
+  .step-desc { font-size:.82rem; color:#94a3b8; }
+  .step img  { width:100%; display:block; }
+  .step-body { padding:12px 18px; }
+</style>
+</head>
+<body>
+
+<h1>Plate Detection Debug <span class="badge">Bambu Lab A1 · 256 × 256 mm</span></h1>
+<p class="subtitle">Upload a photo to see every intermediate detection step.</p>
+
+<div id="drop-zone">
+  <p>Drop an image here or <strong>click to browse</strong></p>
+  <p id="file-name" style="color:#7dd3fc;margin-top:6px;"></p>
+  <input type="file" id="file-input" accept="image/*">
+</div>
+
+<button id="run-btn" disabled>Run Detection</button>
+<div id="status"></div>
+<div id="steps"></div>
+
+<script>
+  const PLATE_W = 256, PLATE_H = 256;
+  let selectedFile = null;
+
+  const dropZone  = document.getElementById('drop-zone');
+  const fileInput = document.getElementById('file-input');
+  const runBtn    = document.getElementById('run-btn');
+  const statusEl  = document.getElementById('status');
+  const stepsEl   = document.getElementById('steps');
+
+  dropZone.addEventListener('click', () => fileInput.click());
+  dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag'); });
+  dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag'));
+  dropZone.addEventListener('drop', e => {
+    e.preventDefault(); dropZone.classList.remove('drag');
+    const f = e.dataTransfer.files[0];
+    if (f) setFile(f);
+  });
+  fileInput.addEventListener('change', e => { if (e.target.files[0]) setFile(e.target.files[0]); });
+
+  function setFile(f) {
+    selectedFile = f;
+    document.getElementById('file-name').textContent = f.name;
+    runBtn.disabled = false;
+  }
+
+  function addStep(step, extraClass = '') {
+    const div = document.createElement('div');
+    div.className = 'step ' + extraClass;
+    div.innerHTML = `
+      <div class="step-header">
+        <h2>${step.title}</h2>
+        <span class="step-desc">${step.description}</span>
+      </div>
+      ${step.image ? `<img src="data:image/jpeg;base64,${step.image}" alt="${step.title}">` : ''}
+    `;
+    stepsEl.appendChild(div);
+  }
+
+  runBtn.addEventListener('click', async () => {
+    if (!selectedFile) return;
+    runBtn.disabled = true;
+    runBtn.textContent = 'Running…';
+    statusEl.textContent = '';
+    stepsEl.innerHTML = '';
+
+    const fd = new FormData();
+    fd.append('image', selectedFile);
+    fd.append('plate_width_mm',  PLATE_W);
+    fd.append('plate_height_mm', PLATE_H);
+
+    try {
+      const t0  = Date.now();
+      const res = await fetch('/api/v1/debug-detection', { method: 'POST', body: fd });
+      if (!res.ok) { const t = await res.text(); throw new Error(`HTTP ${res.status}: ${t}`); }
+      const data = await res.json();
+      const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
+
+      for (const step of data.steps) addStep(step);
+
+      if (data.error) {
+        addStep({ title: '❌ Detection failed', description: data.error, image: null }, 'failure');
+        statusEl.textContent = `Finished in ${elapsed}s — no plate detected.`;
+      } else {
+        addStep({ title: '✅ Detection succeeded', description: 'Corners found — ready for perspective correction.', image: null }, 'success');
+        statusEl.textContent = `Finished in ${elapsed}s.`;
+      }
+    } catch (err) {
+      addStep({ title: '❌ Request error', description: String(err), image: null }, 'failure');
+      statusEl.textContent = 'Request failed.';
+    } finally {
+      runBtn.disabled = false;
+      runBtn.textContent = 'Run Detection';
+    }
+  });
+</script>
+</body>
+</html>
+
