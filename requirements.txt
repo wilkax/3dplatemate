@@ -5,6 +5,7 @@ opencv-python-headless
 numpy
 shapely
 trimesh
+mapbox-earcut
 python-dotenv
 pydantic-settings
 
