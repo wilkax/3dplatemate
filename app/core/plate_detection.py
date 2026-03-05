@@ -32,8 +32,14 @@ _MIN_AREA_RATIO  = 0.05
 # Centre patch used to sample the plate colour (fraction of each dimension)
 _CENTER_PATCH_F  = 0.08
 
-# ΔE thresholds to try when building the colour-distance mask (LAB units)
+# ΔE thresholds — full LAB (L+A+B), sensitive to lighting differences
 _COLOR_THRESHOLDS = [20, 30, 40, 55, 70]
+
+# ΔE thresholds — chrominance only (A+B), lighting-invariant
+_AB_THRESHOLDS = [10, 15, 22, 30, 42]
+
+# Probability thresholds for HSV histogram backprojection (0–255)
+_BACKPROJ_THRESHOLDS = [30, 50, 80, 120, 160]
 
 
 def _order_corners(pts: np.ndarray) -> np.ndarray:
@@ -123,6 +129,56 @@ def _color_distance_mask(img_lab: np.ndarray, plate_color: np.ndarray, threshold
     diff = img_lab.astype(np.float32) - plate_color.astype(np.float32)
     dist = np.sqrt((diff ** 2).sum(axis=2))
     return (dist <= threshold).astype(np.uint8) * 255
+
+
+def _ab_distance_mask(img_lab: np.ndarray, plate_color: np.ndarray, threshold: float) -> np.ndarray:
+    """
+    Binary mask using only the A and B chrominance channels of LAB.
+
+    Ignores L (luminance) entirely, so lighting gradients and shadows across
+    the plate surface do not affect the match.  Two pixels with identical hue
+    but different brightness both pass if their A+B distance is within threshold.
+    """
+    diff_a = img_lab[:, :, 1].astype(np.float32) - float(plate_color[1])
+    diff_b = img_lab[:, :, 2].astype(np.float32) - float(plate_color[2])
+    dist = np.sqrt(diff_a ** 2 + diff_b ** 2)
+    return (dist <= threshold).astype(np.uint8) * 255
+
+
+def _hsv_backprojection_mask(
+    img_hsv: np.ndarray,
+    center_patch_hsv: np.ndarray,
+    threshold: int,
+) -> np.ndarray:
+    """
+    Histogram backprojection in H+S space.
+
+    Builds a 2-D histogram of Hue × Saturation from the centre patch (which
+    covers the plate surface), then assigns each pixel in the full image a
+    probability score based on how well its H+S matches the patch histogram.
+    Pixels above `threshold` (0–255) are returned as foreground.
+
+    Advantages over single-point distance:
+    - Models the full colour *distribution* of the plate, not just the mean.
+    - Inherently handles surface texture, subtle print residue, and uneven
+      illumination within the patch.
+    - Value (brightness) channel is ignored — lighting-invariant.
+    """
+    hist = cv2.calcHist(
+        [center_patch_hsv], [0, 1], None,
+        [36, 32],            # 36 hue bins (5° each), 32 sat bins
+        [0, 180, 0, 256],
+    )
+    cv2.normalize(hist, hist, 0, 255, cv2.NORM_MINMAX)
+
+    prob = cv2.calcBackProject([img_hsv], [0, 1], hist, [0, 180, 0, 256], scale=1)
+
+    # Smooth with a small disc kernel to fill gaps from specular highlights
+    disc = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7))
+    cv2.filter2D(prob, -1, disc, prob)
+
+    _, mask = cv2.threshold(prob, threshold, 255, cv2.THRESH_BINARY)
+    return mask
 
 
 def _otsu_mask(gray: np.ndarray, invert: bool = False) -> np.ndarray:
@@ -236,20 +292,42 @@ def detect_plate_corners(
         expected_ratio = max(plate_width_mm, plate_height_mm) / min(plate_width_mm, plate_height_mm)
 
     img_lab  = cv2.cvtColor(work, cv2.COLOR_BGR2LAB).astype(np.float32)
+    img_hsv  = cv2.cvtColor(work, cv2.COLOR_BGR2HSV)
     gray     = cv2.cvtColor(work, cv2.COLOR_BGR2GRAY)
     blurred  = cv2.GaussianBlur(gray, (7, 7), 0)
 
     plate_color = _sample_plate_color(img_lab)
+    ph = max(1, int(work_h * _CENTER_PATCH_F))
+    pw = max(1, int(work_w * _CENTER_PATCH_F))
+    cy0, cx0 = work_h // 2, work_w // 2
+    center_hsv = img_hsv[cy0 - ph // 2 : cy0 + ph // 2, cx0 - pw // 2 : cx0 + pw // 2]
+
     quad = None
 
-    # ── 1. Colour-distance mask at increasing ΔE thresholds ──────────────────
-    for threshold in _COLOR_THRESHOLDS:
-        mask = _color_distance_mask(img_lab, plate_color, threshold)
+    # ── 1. HSV histogram backprojection (lighting-invariant, distribution-based)
+    for threshold in _BACKPROJ_THRESHOLDS:
+        mask = _hsv_backprojection_mask(img_hsv, center_hsv, threshold)
         quad = _best_centered_quad(mask, work_w, work_h, min_area, expected_ratio)
         if quad is not None:
             break
 
-    # ── 2. Otsu fallback (dark plate on light bg, then inverted) ─────────────
+    # ── 2. Chrominance-only A+B distance (ignores luminance / lighting)  ──────
+    if quad is None:
+        for threshold in _AB_THRESHOLDS:
+            mask = _ab_distance_mask(img_lab, plate_color, threshold)
+            quad = _best_centered_quad(mask, work_w, work_h, min_area, expected_ratio)
+            if quad is not None:
+                break
+
+    # ── 3. Full LAB ΔE (original approach, kept as fallback) ─────────────────
+    if quad is None:
+        for threshold in _COLOR_THRESHOLDS:
+            mask = _color_distance_mask(img_lab, plate_color, threshold)
+            quad = _best_centered_quad(mask, work_w, work_h, min_area, expected_ratio)
+            if quad is not None:
+                break
+
+    # ── 4. Otsu brightness threshold (last resort) ───────────────────────────
     if quad is None:
         for invert in (False, True):
             mask = _otsu_mask(blurred, invert=invert)
@@ -277,6 +355,46 @@ def detect_plate_corners(
 # ── Debug helpers ─────────────────────────────────────────────────────────────
 
 _DEBUG_MAX_PX = 800
+
+
+def _make_mask_step(
+    title: str,
+    mask: np.ndarray,
+    work: np.ndarray,
+    work_w: int,
+    work_h: int,
+    min_area: float,
+    expected_ratio: float | None,
+    final_quad_box: list,          # single-element list used as a mutable reference
+) -> dict:
+    """
+    Build one debug step dict for a given binary mask.
+
+    Visualisation: matched pixels at full brightness, rest darkened to 25%.
+    Valid candidate quads are drawn (green = most-centred winner, blue = others).
+    `final_quad_box` is a 1-element list; if it is [None] and candidates are
+    found, the winner is stored there so callers know detection succeeded.
+    """
+    clean      = _cleanup_mask(mask)
+    candidates = _find_all_quads(clean, work_w, work_h, min_area, expected_ratio)
+
+    darkened = (work * 0.25).astype(np.uint8)
+    overlay  = np.where(clean[:, :, np.newaxis] > 0, work, darkened)
+    _draw_crosshair(overlay, work_w // 2, work_h // 2)
+    _draw_quads(overlay, candidates)
+
+    pct = int((clean > 0).mean() * 100)
+    n   = len(candidates)
+
+    if n > 0 and final_quad_box[0] is None:
+        final_quad_box[0] = candidates[0][0]
+        desc = (f"✅ {pct}% pixels matched · {n} valid quad(s) · "
+                f"winner (green) {candidates[0][1]:.0f} px from centre")
+    else:
+        suffix = " · already solved at earlier step" if final_quad_box[0] is not None else ""
+        desc = f"{pct}% pixels matched · {n} valid quad(s){suffix}"
+
+    return {"title": title, "image": _encode_b64(overlay), "description": desc}
 
 
 def _encode_b64(img: np.ndarray) -> str:
@@ -339,13 +457,18 @@ def detect_plate_corners_debug(
     min_area = work_w * work_h * _MIN_AREA_RATIO
     expected_ratio = max(plate_width_mm, plate_height_mm) / min(plate_width_mm, plate_height_mm)
 
-    img_lab = cv2.cvtColor(work, cv2.COLOR_BGR2LAB).astype(np.float32)
+    img_lab    = cv2.cvtColor(work, cv2.COLOR_BGR2LAB).astype(np.float32)
+    img_hsv    = cv2.cvtColor(work, cv2.COLOR_BGR2HSV)
+    gray       = cv2.cvtColor(work, cv2.COLOR_BGR2GRAY)
+    blurred    = cv2.GaussianBlur(gray, (7, 7), 0)
     plate_color = _sample_plate_color(img_lab)
 
-    # ── Step 1: original + sampled region ────────────────────────────────────
     ph = max(1, int(work_h * _CENTER_PATCH_F))
     pw = max(1, int(work_w * _CENTER_PATCH_F))
-    cy0, cx0 = work_h // 2, work_w // 2
+    cy0, cx0   = work_h // 2, work_w // 2
+    center_hsv = img_hsv[cy0 - ph // 2 : cy0 + ph // 2, cx0 - pw // 2 : cx0 + pw // 2]
+
+    # ── Step 1: original + sampled region ────────────────────────────────────
     vis1 = work.copy()
     cv2.rectangle(vis1, (cx0 - pw//2, cy0 - ph//2), (cx0 + pw//2, cy0 + ph//2), (0, 230, 230), 2)
     _draw_crosshair(vis1, work_w // 2, work_h // 2)
@@ -367,62 +490,43 @@ def detect_plate_corners_debug(
                   "image": _encode_b64(swatch),
                   "description": "Dominant colour of the centre patch — ΔE distances are measured from this."})
 
-    # ── Steps 3+: colour-distance masks ──────────────────────────────────────
-    final_quad: np.ndarray | None = None
+    # Mutable box so _make_mask_step can record the first winner found
+    fq = [None]   # fq[0] = winning quad once found, else None
 
-    for i, threshold in enumerate(_COLOR_THRESHOLDS):
-        raw_mask = _color_distance_mask(img_lab, plate_color, threshold)
-        clean    = _cleanup_mask(raw_mask)
-        candidates = _find_all_quads(clean, work_w, work_h, min_area, expected_ratio)
+    # ── Strategy 1: HSV histogram backprojection ──────────────────────────────
+    for t in _BACKPROJ_THRESHOLDS:
+        steps.append(_make_mask_step(
+            f"Backprojection H+S  threshold={t}",
+            _hsv_backprojection_mask(img_hsv, center_hsv, t),
+            work, work_w, work_h, min_area, expected_ratio, fq,
+        ))
 
-        # Overlay: matched pixels at full brightness, rest darkened
-        darkened = (work * 0.25).astype(np.uint8)
-        overlay  = np.where(clean[:, :, np.newaxis] > 0, work, darkened)
-        _draw_crosshair(overlay, work_w // 2, work_h // 2)
-        _draw_quads(overlay, candidates)
+    # ── Strategy 2: Chrominance A+B (lighting-invariant) ─────────────────────
+    for t in _AB_THRESHOLDS:
+        steps.append(_make_mask_step(
+            f"Chrominance A+B  ΔE ≤ {t}",
+            _ab_distance_mask(img_lab, plate_color, t),
+            work, work_w, work_h, min_area, expected_ratio, fq,
+        ))
 
-        pct = int((clean > 0).mean() * 100)
-        n   = len(candidates)
+    # ── Strategy 3: Full LAB ΔE ───────────────────────────────────────────────
+    for t in _COLOR_THRESHOLDS:
+        steps.append(_make_mask_step(
+            f"Full LAB ΔE ≤ {t}",
+            _color_distance_mask(img_lab, plate_color, t),
+            work, work_w, work_h, min_area, expected_ratio, fq,
+        ))
 
-        if n > 0 and final_quad is None:
-            final_quad = candidates[0][0]
-            desc = (f"✅ {pct}% pixels matched · {n} valid quad(s) · "
-                    f"winner (green) {candidates[0][1]:.0f} px from centre")
-        else:
-            suffix = " · already solved at lower threshold" if final_quad is not None else ""
-            desc = f"{pct}% pixels matched · {n} valid quad(s){suffix}"
+    # ── Strategy 4: Otsu fallback ─────────────────────────────────────────────
+    for invert in (False, True):
+        label = "inverted" if invert else "normal"
+        steps.append(_make_mask_step(
+            f"Otsu ({label})",
+            _otsu_mask(blurred, invert=invert),
+            work, work_w, work_h, min_area, expected_ratio, fq,
+        ))
 
-        steps.append({"title": f"Step {i + 3} — Colour mask ΔE ≤ {threshold}",
-                      "image": _encode_b64(overlay),
-                      "description": desc})
-
-    # ── Otsu fallback ─────────────────────────────────────────────────────────
-    if final_quad is None:
-        gray    = cv2.cvtColor(work, cv2.COLOR_BGR2GRAY)
-        blurred = cv2.GaussianBlur(gray, (7, 7), 0)
-        step_n  = len(_COLOR_THRESHOLDS) + 3
-
-        for invert in (False, True):
-            mask       = _otsu_mask(blurred, invert=invert)
-            clean      = _cleanup_mask(mask)
-            candidates = _find_all_quads(clean, work_w, work_h, min_area, expected_ratio)
-            label      = "inverted" if invert else "normal"
-
-            darkened = (work * 0.25).astype(np.uint8)
-            overlay  = np.where(clean[:, :, np.newaxis] > 0, work, darkened)
-            _draw_crosshair(overlay, work_w // 2, work_h // 2)
-            _draw_quads(overlay, candidates)
-
-            if candidates and final_quad is None:
-                final_quad = candidates[0][0]
-                desc = f"✅ Otsu ({label}) · {len(candidates)} valid quad(s) · winner found"
-            else:
-                desc = f"Otsu ({label}) · {len(candidates)} valid quad(s)"
-
-            steps.append({"title": f"Step {step_n} — Otsu fallback ({label})",
-                          "image": _encode_b64(overlay),
-                          "description": desc})
-            step_n += 1
+    final_quad = fq[0]
 
     # ── Final result ──────────────────────────────────────────────────────────
     if final_quad is not None:
