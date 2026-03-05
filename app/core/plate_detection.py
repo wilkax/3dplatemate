@@ -276,8 +276,15 @@ def detect_plate_corners(
 
 # ── Debug helpers ─────────────────────────────────────────────────────────────
 
+_DEBUG_MAX_PX = 800
+
+
 def _encode_b64(img: np.ndarray) -> str:
-    """Encode a BGR numpy image to a base64 JPEG string."""
+    """Encode a BGR numpy image to a base64 JPEG string, capped at 800 px on the long side."""
+    h, w = img.shape[:2]
+    if max(h, w) > _DEBUG_MAX_PX:
+        s = _DEBUG_MAX_PX / max(h, w)
+        img = cv2.resize(img, (int(w * s), int(h * s)), interpolation=cv2.INTER_AREA)
     _, buf = cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, 88])
     return base64.b64encode(buf.tobytes()).decode()
 
