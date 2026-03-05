@@ -39,7 +39,7 @@ _COLOR_THRESHOLDS = [20, 30, 40, 55, 70]
 _AB_THRESHOLDS = [10, 15, 22, 30, 42]
 
 # Probability thresholds for HSV histogram backprojection (0–255)
-_BACKPROJ_THRESHOLDS = [30, 50, 80, 120, 160]
+_BACKPROJ_THRESHOLDS = [25, 50, 80, 120, 160]
 
 
 def _order_corners(pts: np.ndarray) -> np.ndarray:
