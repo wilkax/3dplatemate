@@ -14,6 +14,7 @@ dirty spots before calling /api/v1/generate-stl.
 from __future__ import annotations
 
 import base64
+import json
 import logging
 from typing import Optional
 
@@ -55,15 +56,46 @@ def _resolve_plate_dimensions(
     )
 
 
+@router.post("/detect-corners")
+async def detect_corners(
+    image: UploadFile = File(..., description="Photo of the build plate (JPEG/PNG/WEBP)"),
+    printer_id: Optional[str] = Form(None),
+    plate_width_mm: Optional[float] = Form(None),
+    plate_height_mm: Optional[float] = Form(None),
+):
+    """
+    Detect the 4 plate corners without performing any perspective correction.
+
+    Returns JSON:
+      corners         : {top_left, top_right, bottom_right, bottom_left} — each [x, y]
+                        in the uploaded image's pixel coordinates.
+      plate_width_mm  : resolved plate width
+      plate_height_mm : resolved plate height
+    """
+    width_mm, height_mm = _resolve_plate_dimensions(printer_id, plate_width_mm, plate_height_mm)
+    image_bytes = await image.read()
+    if not image_bytes:
+        raise HTTPException(status_code=422, detail="Uploaded image is empty.")
+
+    try:
+        corners_px = detect_plate_corners(image_bytes, width_mm, height_mm)
+    except ValueError as exc:
+        logger.error("Corner detection failed: %s", exc)
+        raise HTTPException(status_code=422, detail=str(exc))
+
+    return {"corners": corners_px, "plate_width_mm": width_mm, "plate_height_mm": height_mm}
+
+
 @router.post("/prepare")
 async def prepare(
     image: UploadFile = File(..., description="Photo of the build plate (JPEG/PNG/WEBP)"),
     printer_id: Optional[str] = Form(None, description="Printer ID from /api/v1/printers"),
     plate_width_mm: Optional[float] = Form(None, description="Manual plate width in mm"),
     plate_height_mm: Optional[float] = Form(None, description="Manual plate height in mm"),
+    corners_json: Optional[str] = Form(None, description="Pre-supplied corners JSON (skips detection)"),
 ):
     """
-    Detect the build plate, perspective-correct and enhance the image.
+    Perspective-correct and enhance the image using detected or supplied corners.
 
     Returns JSON:
       image          : base64-encoded JPEG of the enhanced top-down plate view
@@ -79,12 +111,18 @@ async def prepare(
     if len(image_bytes) > _MAX_IMAGE_BYTES:
         raise HTTPException(status_code=413, detail="Image exceeds 20 MB limit.")
 
-    # Corner detection
-    try:
-        corners_px = detect_plate_corners(image_bytes, width_mm, height_mm)
-    except ValueError as exc:
-        logger.error("Corner detection failed: %s", exc)
-        raise HTTPException(status_code=422, detail=f"Corner detection failed: {exc}")
+    # Use pre-supplied corners (from corner editor) or run detection
+    if corners_json:
+        try:
+            corners_px = json.loads(corners_json)
+        except (json.JSONDecodeError, ValueError) as exc:
+            raise HTTPException(status_code=422, detail=f"Invalid corners_json: {exc}")
+    else:
+        try:
+            corners_px = detect_plate_corners(image_bytes, width_mm, height_mm)
+        except ValueError as exc:
+            logger.error("Corner detection failed: %s", exc)
+            raise HTTPException(status_code=422, detail=f"Corner detection failed: {exc}")
 
     # Perspective correction
     try:
