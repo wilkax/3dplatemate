@@ -181,6 +181,28 @@ def _hsv_backprojection_mask(
     return mask
 
 
+def _enhance_chromatic(bgr: np.ndarray) -> np.ndarray:
+    """
+    Replicate the paint.net effect that makes gray build plates pop:
+      contrast = -100  →  compress Lightness 90 % towards 128 (removes lighting gradients)
+      saturation = +200 →  multiply Saturation by 3 (amplifies hue differences)
+
+    Net effect:
+    - A neutral-gray plate (S ≈ 0) keeps S ≈ 0 → remains a cool, desaturated region.
+    - A warm wood/desk background (orange, S > 0) gets S × 3 → vivid orange.
+    - Lighting hotspots and shadows are suppressed by the L compression.
+
+    This creates maximum hue contrast between the plate and any coloured background,
+    making HSV histogram backprojection on the result extremely effective.
+    """
+    hls = cv2.cvtColor(bgr, cv2.COLOR_BGR2HLS).astype(np.float32)
+    # Saturation ×3  (paint.net "+200 %")
+    hls[:, :, 2] = np.clip(hls[:, :, 2] * 3.0, 0, 255)
+    # Contrast compression: pull L 90 % towards mid-gray (paint.net "−100")
+    hls[:, :, 1] = 128.0 + (hls[:, :, 1] - 128.0) * 0.1
+    return cv2.cvtColor(hls.astype(np.uint8), cv2.COLOR_HLS2BGR)
+
+
 def _otsu_mask(gray: np.ndarray, invert: bool = False) -> np.ndarray:
     """Otsu thresholding; optionally invert for light-coloured plates."""
     flags = cv2.THRESH_BINARY + cv2.THRESH_OTSU
@@ -296,20 +318,34 @@ def detect_plate_corners(
     gray     = cv2.cvtColor(work, cv2.COLOR_BGR2GRAY)
     blurred  = cv2.GaussianBlur(gray, (7, 7), 0)
 
+    # Chromatically enhanced image (contrast↓, saturation↑) — makes the gray
+    # plate a distinctly neutral island in a hyper-saturated background.
+    enhanced     = _enhance_chromatic(work)
+    enhanced_hsv = cv2.cvtColor(enhanced, cv2.COLOR_BGR2HSV)
+
     plate_color = _sample_plate_color(img_lab)
     ph = max(1, int(work_h * _CENTER_PATCH_F))
     pw = max(1, int(work_w * _CENTER_PATCH_F))
     cy0, cx0 = work_h // 2, work_w // 2
-    center_hsv = img_hsv[cy0 - ph // 2 : cy0 + ph // 2, cx0 - pw // 2 : cx0 + pw // 2]
+    center_hsv          = img_hsv[cy0 - ph // 2 : cy0 + ph // 2, cx0 - pw // 2 : cx0 + pw // 2]
+    center_enhanced_hsv = enhanced_hsv[cy0 - ph // 2 : cy0 + ph // 2, cx0 - pw // 2 : cx0 + pw // 2]
 
     quad = None
 
-    # ── 1. HSV histogram backprojection (lighting-invariant, distribution-based)
+    # ── 0. Backprojection on ENHANCED image (highest priority) ──────────────
     for threshold in _BACKPROJ_THRESHOLDS:
-        mask = _hsv_backprojection_mask(img_hsv, center_hsv, threshold)
+        mask = _hsv_backprojection_mask(enhanced_hsv, center_enhanced_hsv, threshold)
         quad = _best_centered_quad(mask, work_w, work_h, min_area, expected_ratio)
         if quad is not None:
             break
+
+    # ── 1. HSV histogram backprojection on original image ───────────────────
+    if quad is None:
+        for threshold in _BACKPROJ_THRESHOLDS:
+            mask = _hsv_backprojection_mask(img_hsv, center_hsv, threshold)
+            quad = _best_centered_quad(mask, work_w, work_h, min_area, expected_ratio)
+            if quad is not None:
+                break
 
     # ── 2. Chrominance-only A+B distance (ignores luminance / lighting)  ──────
     if quad is None:
@@ -463,10 +499,14 @@ def detect_plate_corners_debug(
     blurred    = cv2.GaussianBlur(gray, (7, 7), 0)
     plate_color = _sample_plate_color(img_lab)
 
+    enhanced     = _enhance_chromatic(work)
+    enhanced_hsv = cv2.cvtColor(enhanced, cv2.COLOR_BGR2HSV)
+
     ph = max(1, int(work_h * _CENTER_PATCH_F))
     pw = max(1, int(work_w * _CENTER_PATCH_F))
-    cy0, cx0   = work_h // 2, work_w // 2
-    center_hsv = img_hsv[cy0 - ph // 2 : cy0 + ph // 2, cx0 - pw // 2 : cx0 + pw // 2]
+    cy0, cx0            = work_h // 2, work_w // 2
+    center_hsv          = img_hsv[cy0 - ph // 2 : cy0 + ph // 2, cx0 - pw // 2 : cx0 + pw // 2]
+    center_enhanced_hsv = enhanced_hsv[cy0 - ph // 2 : cy0 + ph // 2, cx0 - pw // 2 : cx0 + pw // 2]
 
     # ── Step 1: original + sampled region ────────────────────────────────────
     vis1 = work.copy()
@@ -476,7 +516,18 @@ def detect_plate_corners_debug(
                   "image": _encode_b64(vis1),
                   "description": "Cyan box = centre patch sampled for plate colour. Red crosshair = image centre."})
 
-    # ── Step 2: sampled colour swatch ────────────────────────────────────────
+    # ── Step 2: chromatic-enhanced image ─────────────────────────────────────
+    vis2 = enhanced.copy()
+    cv2.rectangle(vis2, (cx0 - pw//2, cy0 - ph//2), (cx0 + pw//2, cy0 + ph//2), (0, 230, 230), 2)
+    _draw_crosshair(vis2, work_w // 2, work_h // 2)
+    steps.append({"title": "Step 2 — Chromatic enhancement (contrast −100, sat ×3)",
+                  "image": _encode_b64(vis2),
+                  "description": (
+                      "Saturation boosted ×3, lightness compressed towards 128. "
+                      "Neutral-gray plates become clearly distinct from coloured backgrounds."
+                  )})
+
+    # ── Step 3: sampled colour swatch ────────────────────────────────────────
     lab_px = np.array([[[round(plate_color[0]), round(plate_color[1]), round(plate_color[2])]]],
                       dtype=np.uint8)
     bgr = cv2.cvtColor(lab_px, cv2.COLOR_LAB2BGR)[0][0]
@@ -486,14 +537,22 @@ def detect_plate_corners_debug(
     cv2.putText(swatch, f"RGB  ({r}, {g}, {b})", (12, 50), cv2.FONT_HERSHEY_SIMPLEX, 0.8, tc, 2)
     cv2.putText(swatch, f"LAB  ({plate_color[0]:.0f}, {plate_color[1]:.0f}, {plate_color[2]:.0f})",
                 (12, 90), cv2.FONT_HERSHEY_SIMPLEX, 0.8, tc, 2)
-    steps.append({"title": "Step 2 — Sampled plate colour",
+    steps.append({"title": "Step 3 — Sampled plate colour",
                   "image": _encode_b64(swatch),
                   "description": "Dominant colour of the centre patch — ΔE distances are measured from this."})
 
     # Mutable box so _make_mask_step can record the first winner found
     fq = [None]   # fq[0] = winning quad once found, else None
 
-    # ── Strategy 1: HSV histogram backprojection ──────────────────────────────
+    # ── Strategy 0: Backprojection on ENHANCED image (highest priority) ───────
+    for t in _BACKPROJ_THRESHOLDS:
+        steps.append(_make_mask_step(
+            f"Enhanced backprojection H+S  threshold={t}",
+            _hsv_backprojection_mask(enhanced_hsv, center_enhanced_hsv, t),
+            enhanced, work_w, work_h, min_area, expected_ratio, fq,
+        ))
+
+    # ── Strategy 1: HSV histogram backprojection on original ─────────────────
     for t in _BACKPROJ_THRESHOLDS:
         steps.append(_make_mask_step(
             f"Backprojection H+S  threshold={t}",
