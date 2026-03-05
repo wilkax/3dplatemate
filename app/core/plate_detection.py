@@ -455,86 +455,10 @@ def detect_plate_corners(
     if plate_width_mm and plate_height_mm:
         expected_ratio = max(plate_width_mm, plate_height_mm) / min(plate_width_mm, plate_height_mm)
 
-    img_lab  = cv2.cvtColor(work, cv2.COLOR_BGR2LAB).astype(np.float32)
-    img_hsv  = cv2.cvtColor(work, cv2.COLOR_BGR2HSV)
-    gray     = cv2.cvtColor(work, cv2.COLOR_BGR2GRAY)
-    blurred  = cv2.GaussianBlur(gray, (7, 7), 0)
+    gray = cv2.cvtColor(work, cv2.COLOR_BGR2GRAY)
 
-    # Chromatically enhanced image: saturation ×3, lightness compressed.
-    # The saturation channel (S) of this image has near-zero values on the
-    # neutral-gray plate and high values everywhere else — perfect for Canny.
-    enhanced     = _enhance_chromatic(work)
-    enhanced_hls = cv2.cvtColor(enhanced, cv2.COLOR_BGR2HLS)
-    enhanced_sat = enhanced_hls[:, :, 2]   # S channel: plate=dark, BG=bright
-    enhanced_hsv = cv2.cvtColor(enhanced, cv2.COLOR_BGR2HSV)
-
-    plate_color = _sample_plate_color(img_lab)
-    ph = max(1, int(work_h * _CENTER_PATCH_F))
-    pw = max(1, int(work_w * _CENTER_PATCH_F))
-    cy0, cx0 = work_h // 2, work_w // 2
-    center_hsv          = img_hsv[cy0 - ph // 2 : cy0 + ph // 2, cx0 - pw // 2 : cx0 + pw // 2]
-    center_enhanced_hsv = enhanced_hsv[cy0 - ph // 2 : cy0 + ph // 2, cx0 - pw // 2 : cx0 + pw // 2]
-
-    def _first(candidates):
-        return candidates[0][0] if candidates else None
-
-    quad = None
-
-    # ── C. Canny on original grayscale (empirically best) ───────────────────
-    if quad is None:
-        quad = _first(_canny_candidates(gray, work_w, work_h, min_area, expected_ratio))
-
-    # ── A. Canny on enhanced saturation channel ──────────────────────────────
-    if quad is None:
-        quad = _first(_canny_candidates(enhanced_sat, work_w, work_h, min_area, expected_ratio))
-
-    # ── D. Hough on original grayscale ───────────────────────────────────────
-    if quad is None:
-        quad = _first(_hough_candidates(gray, work_w, work_h, min_area, expected_ratio))
-
-    # ── B. Hough on enhanced saturation channel ──────────────────────────────
-    if quad is None:
-        quad = _first(_hough_candidates(enhanced_sat, work_w, work_h, min_area, expected_ratio))
-
-    # ── E. Backprojection on enhanced image ──────────────────────────────────
-    if quad is None:
-        for threshold in _BACKPROJ_THRESHOLDS:
-            mask = _hsv_backprojection_mask(enhanced_hsv, center_enhanced_hsv, threshold)
-            quad = _best_centered_quad(mask, work_w, work_h, min_area, expected_ratio)
-            if quad is not None:
-                break
-
-    # ── F. Backprojection on original image ──────────────────────────────────
-    if quad is None:
-        for threshold in _BACKPROJ_THRESHOLDS:
-            mask = _hsv_backprojection_mask(img_hsv, center_hsv, threshold)
-            quad = _best_centered_quad(mask, work_w, work_h, min_area, expected_ratio)
-            if quad is not None:
-                break
-
-    # ── G. Chrominance A+B distance (lighting-invariant) ─────────────────────
-    if quad is None:
-        for threshold in _AB_THRESHOLDS:
-            mask = _ab_distance_mask(img_lab, plate_color, threshold)
-            quad = _best_centered_quad(mask, work_w, work_h, min_area, expected_ratio)
-            if quad is not None:
-                break
-
-    # ── H. Full LAB ΔE ───────────────────────────────────────────────────────
-    if quad is None:
-        for threshold in _COLOR_THRESHOLDS:
-            mask = _color_distance_mask(img_lab, plate_color, threshold)
-            quad = _best_centered_quad(mask, work_w, work_h, min_area, expected_ratio)
-            if quad is not None:
-                break
-
-    # ── I. Otsu brightness threshold (last resort) ───────────────────────────
-    if quad is None:
-        for invert in (False, True):
-            mask = _otsu_mask(blurred, invert=invert)
-            quad = _best_centered_quad(mask, work_w, work_h, min_area, expected_ratio)
-            if quad is not None:
-                break
+    candidates = _canny_candidates(gray, work_w, work_h, min_area, expected_ratio)
+    quad = candidates[0][0] if candidates else None
 
     if quad is None:
         raise ValueError(
