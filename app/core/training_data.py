@@ -17,11 +17,12 @@ When BLOB_READ_WRITE_TOKEN is set the files are uploaded to Vercel Blob
 from __future__ import annotations
 
 import logging
-import os
 import urllib.request
 import uuid
 from datetime import datetime
 from pathlib import Path
+
+from app.config import settings
 
 import cv2
 import numpy as np
@@ -43,7 +44,7 @@ def make_session_id() -> str:
 
 
 def _token() -> str | None:
-    return os.environ.get("BLOB_READ_WRITE_TOKEN")
+    return settings.blob_read_write_token
 
 
 def _blob_put(pathname: str, data: bytes, content_type: str) -> None:
