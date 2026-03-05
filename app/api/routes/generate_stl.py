@@ -105,7 +105,7 @@ async def generate_stl_from_mask(
         )
 
     try:
-        stl_bytes = generate_stl(buffered_polygons_mm)
+        stl_bytes = generate_stl(buffered_polygons_mm, plate_width_mm=plate_width_mm, plate_height_mm=plate_height_mm)
     except ValueError as exc:
         raise HTTPException(status_code=500, detail=str(exc))
 
