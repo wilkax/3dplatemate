@@ -49,20 +49,26 @@ def _token() -> str | None:
 
 def _blob_put(pathname: str, data: bytes, content_type: str) -> None:
     """PUT `data` to Vercel Blob at `pathname` relative to the store root."""
+    import urllib.error
     url = f"{_BLOB_UPLOAD}/{pathname}"
     req = urllib.request.Request(
         url,
         data=data,
         method="PUT",
         headers={
-            "Authorization": f"Bearer {_token()}",
-            "Content-Type":  content_type,
-            "x-vercel-blob-store-id": "platemate-training-data",
+            "Authorization":        f"Bearer {_token()}",
+            "Content-Type":         content_type,
+            "x-api-version":        "7",
+            "x-vercel-blob-access": "private",
         },
     )
-    with urllib.request.urlopen(req, timeout=30) as resp:
-        resp.read()   # consume body so the connection is released
-    logger.debug("Blob uploaded: %s", pathname)
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            resp.read()
+        logger.debug("Blob uploaded: %s", pathname)
+    except urllib.error.HTTPError as exc:
+        body = exc.read().decode("utf-8", errors="replace")
+        raise RuntimeError(f"Blob HTTP {exc.code}: {body}") from exc
 
 
 # ── public API ────────────────────────────────────────────────────────────────
