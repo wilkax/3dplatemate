@@ -81,7 +81,7 @@ async def prepare(
 
     # Corner detection
     try:
-        corners_px = detect_plate_corners(image_bytes)
+        corners_px = detect_plate_corners(image_bytes, width_mm, height_mm)
     except ValueError as exc:
         logger.error("Corner detection failed: %s", exc)
         raise HTTPException(status_code=422, detail=f"Corner detection failed: {exc}")
