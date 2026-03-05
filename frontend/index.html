@@ -41,7 +41,7 @@
     .canvas-area { flex: 1; min-width: 0; }
     .canvas-wrapper { position: relative; display: block; width: 100%; line-height: 0; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 6px rgba(0,0,0,.15); cursor: crosshair; }
     #bgCanvas    { display: block; width: 100%; height: auto; }
-    #paintCanvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+    #paintCanvas { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0.65; }
     #guideCanvas { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
 
     .tool-group { display: flex; flex-direction: column; gap: .4rem; }
@@ -493,7 +493,7 @@ function startBrush(pos) {
   isDrawing = true;
   lastX = pos.x; lastY = pos.y;
   paintCtx.globalCompositeOperation = mode === 'eraser' ? 'destination-out' : 'source-over';
-  paintCtx.fillStyle = 'rgba(239,68,68,0.65)';
+  paintCtx.fillStyle = '#ef4444';
   paintCtx.beginPath();
   paintCtx.arc(pos.x, pos.y, parseInt(brushSlider.value), 0, Math.PI * 2);
   paintCtx.fill();
@@ -502,7 +502,7 @@ function startBrush(pos) {
 function continueBrush(pos) {
   if (!isDrawing) return;
   paintCtx.globalCompositeOperation = mode === 'eraser' ? 'destination-out' : 'source-over';
-  paintCtx.strokeStyle = 'rgba(239,68,68,0.65)';
+  paintCtx.strokeStyle = '#ef4444';
   paintCtx.lineWidth   = parseInt(brushSlider.value) * 2;
   paintCtx.lineCap     = 'round';
   paintCtx.lineJoin    = 'round';
@@ -527,7 +527,7 @@ function addPolyPoint(pos) {
 function commitPolygon() {
   if (polyPoints.length < 3) { polyPoints = []; clearGuide(); return; }
   paintCtx.globalCompositeOperation = 'source-over';
-  paintCtx.fillStyle = 'rgba(239,68,68,0.65)';
+  paintCtx.fillStyle = '#ef4444';
   paintCtx.beginPath();
   paintCtx.moveTo(polyPoints[0].x, polyPoints[0].y);
   for (let i = 1; i < polyPoints.length; i++) paintCtx.lineTo(polyPoints[i].x, polyPoints[i].y);
