@@ -203,6 +203,148 @@ def _enhance_chromatic(bgr: np.ndarray) -> np.ndarray:
     return cv2.cvtColor(hls.astype(np.uint8), cv2.COLOR_HLS2BGR)
 
 
+# (low, high) Canny threshold pairs — permissive → strict
+_CANNY_PARAMS = [(20, 60), (30, 100), (50, 150)]
+
+
+def _line_intersection(
+    p1: tuple, p2: tuple, p3: tuple, p4: tuple
+) -> np.ndarray | None:
+    """Intersection point of the infinite lines through (p1,p2) and (p3,p4)."""
+    x1, y1 = float(p1[0]), float(p1[1])
+    x2, y2 = float(p2[0]), float(p2[1])
+    x3, y3 = float(p3[0]), float(p3[1])
+    x4, y4 = float(p4[0]), float(p4[1])
+    det = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4)
+    if abs(det) < 1e-6:
+        return None
+    t = ((x1 - x3) * (y3 - y4) - (y1 - y3) * (x3 - x4)) / det
+    return np.array([x1 + t * (x2 - x1), y1 + t * (y2 - y1)], dtype=np.float32)
+
+
+def _canny_candidates(
+    gray: np.ndarray,
+    work_w: int,
+    work_h: int,
+    min_area: float,
+    expected_ratio: float | None,
+) -> list[tuple[np.ndarray, float]]:
+    """
+    Canny edge detection → dilate → findContours → approxPolyDP.
+
+    Tries multiple (low, high) threshold pairs and returns all valid
+    quadrilateral candidates sorted by centroid distance to image centre.
+    Works directly on a grayscale (or single-channel) image.
+    """
+    img_center = np.array([work_w / 2.0, work_h / 2.0])
+    blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+    kernel  = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
+
+    all_candidates: list[tuple[np.ndarray, float]] = []
+    seen: set[tuple] = set()
+
+    for t_low, t_high in _CANNY_PARAMS:
+        edges = cv2.Canny(blurred, t_low, t_high)
+        edges = cv2.dilate(edges, kernel, iterations=2)
+        contours, _ = cv2.findContours(edges, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+        contours = sorted(contours, key=cv2.contourArea, reverse=True)[:30]
+
+        for cnt in contours:
+            if cv2.contourArea(cnt) < min_area:
+                continue
+            peri = cv2.arcLength(cnt, True)
+            for eps_f in _EPSILON_FACTORS:
+                approx = cv2.approxPolyDP(cnt, eps_f * peri, True)
+                if len(approx) == 4:
+                    quad = approx.reshape(4, 2).astype(np.float32)
+                    key  = tuple(np.round(quad / 5).astype(int).flatten())
+                    if key not in seen and _validate_quad(quad, work_w, work_h, expected_ratio):
+                        seen.add(key)
+                        dist = float(np.linalg.norm(quad.mean(axis=0) - img_center))
+                        all_candidates.append((quad, dist))
+                    break
+
+    return sorted(all_candidates, key=lambda x: x[1])
+
+
+def _hough_candidates(
+    gray: np.ndarray,
+    work_w: int,
+    work_h: int,
+    min_area: float,
+    expected_ratio: float | None,
+) -> list[tuple[np.ndarray, float]]:
+    """
+    HoughLinesP → cluster by angle → two most-separated lines per group
+    → four intersection corners → validate quad.
+
+    The plate is a rectangle, so two pairs of roughly-parallel lines should
+    dominate the Hough space; intersecting them gives the four corners without
+    relying on color at all.
+    """
+    blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+    edges   = cv2.Canny(blurred, 30, 100)
+    min_len = min(work_w, work_h) * 0.15
+    lines   = cv2.HoughLinesP(
+        edges, rho=1, theta=np.pi / 180,
+        threshold=max(30, int(min_len * 0.5)),
+        minLineLength=int(min_len),
+        maxLineGap=int(min(work_w, work_h) * 0.05),
+    )
+    if lines is None or len(lines) < 4:
+        return []
+
+    # Angle (0–180°), length, endpoints for each detected segment
+    line_info = []
+    for seg in lines:
+        x1, y1, x2, y2 = seg[0]
+        angle  = np.degrees(np.arctan2(float(y2 - y1), float(x2 - x1))) % 180
+        length = np.hypot(x2 - x1, y2 - y1)
+        line_info.append((angle, length, (x1, y1), (x2, y2)))
+
+    # Length-weighted circular mean of doubled angles → dominant direction
+    a2  = np.array([np.radians(d[0] * 2) for d in line_info])
+    w   = np.array([d[1] for d in line_info])
+    dom = np.degrees(np.arctan2((np.sin(a2) * w).sum(), (np.cos(a2) * w).sum())) / 2 % 180
+
+    # Split into two groups: parallel and perpendicular to dominant direction
+    group_a, group_b = [], []
+    for info in line_info:
+        diff = abs(((info[0] - dom + 90) % 180) - 90)
+        (group_a if diff < 45 else group_b).append(info)
+    if len(group_a) < 2 or len(group_b) < 2:
+        return []
+
+    def _two_extremes(group, normal_deg):
+        nx, ny = np.cos(np.radians(normal_deg)), np.sin(np.radians(normal_deg))
+        projs = [
+            (((d[2][0] + d[3][0]) / 2 * nx + (d[2][1] + d[3][1]) / 2 * ny), d[2], d[3])
+            for d in group
+        ]
+        projs.sort(key=lambda p: p[0])
+        return (projs[0][1], projs[0][2]), (projs[-1][1], projs[-1][2])
+
+    (a1p1, a1p2), (a2p1, a2p2) = _two_extremes(group_a, (dom + 90) % 180)
+    (b1p1, b1p2), (b2p1, b2p2) = _two_extremes(group_b, dom)
+
+    corners = []
+    for ap1, ap2 in ((a1p1, a1p2), (a2p1, a2p2)):
+        for bp1, bp2 in ((b1p1, b1p2), (b2p1, b2p2)):
+            pt = _line_intersection(ap1, ap2, bp1, bp2)
+            if pt is not None:
+                corners.append(pt)
+    if len(corners) != 4:
+        return []
+
+    quad = np.array(corners, dtype=np.float32)
+    if not _validate_quad(quad, work_w, work_h, expected_ratio):
+        return []
+
+    img_center = np.array([work_w / 2.0, work_h / 2.0])
+    dist = float(np.linalg.norm(quad.mean(axis=0) - img_center))
+    return [(quad, dist)]
+
+
 def _otsu_mask(gray: np.ndarray, invert: bool = False) -> np.ndarray:
     """Otsu thresholding; optionally invert for light-coloured plates."""
     flags = cv2.THRESH_BINARY + cv2.THRESH_OTSU
@@ -318,9 +460,12 @@ def detect_plate_corners(
     gray     = cv2.cvtColor(work, cv2.COLOR_BGR2GRAY)
     blurred  = cv2.GaussianBlur(gray, (7, 7), 0)
 
-    # Chromatically enhanced image (contrast↓, saturation↑) — makes the gray
-    # plate a distinctly neutral island in a hyper-saturated background.
+    # Chromatically enhanced image: saturation ×3, lightness compressed.
+    # The saturation channel (S) of this image has near-zero values on the
+    # neutral-gray plate and high values everywhere else — perfect for Canny.
     enhanced     = _enhance_chromatic(work)
+    enhanced_hls = cv2.cvtColor(enhanced, cv2.COLOR_BGR2HLS)
+    enhanced_sat = enhanced_hls[:, :, 2]   # S channel: plate=dark, BG=bright
     enhanced_hsv = cv2.cvtColor(enhanced, cv2.COLOR_BGR2HSV)
 
     plate_color = _sample_plate_color(img_lab)
@@ -330,16 +475,36 @@ def detect_plate_corners(
     center_hsv          = img_hsv[cy0 - ph // 2 : cy0 + ph // 2, cx0 - pw // 2 : cx0 + pw // 2]
     center_enhanced_hsv = enhanced_hsv[cy0 - ph // 2 : cy0 + ph // 2, cx0 - pw // 2 : cx0 + pw // 2]
 
+    def _first(candidates):
+        return candidates[0][0] if candidates else None
+
     quad = None
 
-    # ── 0. Backprojection on ENHANCED image (highest priority) ──────────────
-    for threshold in _BACKPROJ_THRESHOLDS:
-        mask = _hsv_backprojection_mask(enhanced_hsv, center_enhanced_hsv, threshold)
-        quad = _best_centered_quad(mask, work_w, work_h, min_area, expected_ratio)
-        if quad is not None:
-            break
+    # ── A. Canny on enhanced saturation channel (plate boundary = max gradient)
+    if quad is None:
+        quad = _first(_canny_candidates(enhanced_sat, work_w, work_h, min_area, expected_ratio))
 
-    # ── 1. HSV histogram backprojection on original image ───────────────────
+    # ── B. Hough on enhanced saturation channel ──────────────────────────────
+    if quad is None:
+        quad = _first(_hough_candidates(enhanced_sat, work_w, work_h, min_area, expected_ratio))
+
+    # ── C. Canny on original grayscale ───────────────────────────────────────
+    if quad is None:
+        quad = _first(_canny_candidates(gray, work_w, work_h, min_area, expected_ratio))
+
+    # ── D. Hough on original grayscale ───────────────────────────────────────
+    if quad is None:
+        quad = _first(_hough_candidates(gray, work_w, work_h, min_area, expected_ratio))
+
+    # ── E. Backprojection on enhanced image ──────────────────────────────────
+    if quad is None:
+        for threshold in _BACKPROJ_THRESHOLDS:
+            mask = _hsv_backprojection_mask(enhanced_hsv, center_enhanced_hsv, threshold)
+            quad = _best_centered_quad(mask, work_w, work_h, min_area, expected_ratio)
+            if quad is not None:
+                break
+
+    # ── F. Backprojection on original image ──────────────────────────────────
     if quad is None:
         for threshold in _BACKPROJ_THRESHOLDS:
             mask = _hsv_backprojection_mask(img_hsv, center_hsv, threshold)
@@ -347,7 +512,7 @@ def detect_plate_corners(
             if quad is not None:
                 break
 
-    # ── 2. Chrominance-only A+B distance (ignores luminance / lighting)  ──────
+    # ── G. Chrominance A+B distance (lighting-invariant) ─────────────────────
     if quad is None:
         for threshold in _AB_THRESHOLDS:
             mask = _ab_distance_mask(img_lab, plate_color, threshold)
@@ -355,7 +520,7 @@ def detect_plate_corners(
             if quad is not None:
                 break
 
-    # ── 3. Full LAB ΔE (original approach, kept as fallback) ─────────────────
+    # ── H. Full LAB ΔE ───────────────────────────────────────────────────────
     if quad is None:
         for threshold in _COLOR_THRESHOLDS:
             mask = _color_distance_mask(img_lab, plate_color, threshold)
@@ -363,7 +528,7 @@ def detect_plate_corners(
             if quad is not None:
                 break
 
-    # ── 4. Otsu brightness threshold (last resort) ───────────────────────────
+    # ── I. Otsu brightness threshold (last resort) ───────────────────────────
     if quad is None:
         for invert in (False, True):
             mask = _otsu_mask(blurred, invert=invert)
@@ -429,6 +594,39 @@ def _make_mask_step(
     else:
         suffix = " · already solved at earlier step" if final_quad_box[0] is not None else ""
         desc = f"{pct}% pixels matched · {n} valid quad(s){suffix}"
+
+    return {"title": title, "image": _encode_b64(overlay), "description": desc}
+
+
+def _make_edge_step(
+    title: str,
+    candidates: list[tuple[np.ndarray, float]],
+    edge_img: np.ndarray,            # 1-channel edge/gradient image for background
+    work: np.ndarray,                # original colour image (same size)
+    work_w: int,
+    work_h: int,
+    final_quad_box: list,
+) -> dict:
+    """
+    Build one debug step dict for Canny / Hough results.
+
+    Background: edge map converted to BGR (white edges on black), with the
+    original image blended in at 30 % so spatial context is preserved.
+    Candidate quads drawn on top.
+    """
+    edge_bgr = cv2.cvtColor(edge_img, cv2.COLOR_GRAY2BGR) if edge_img.ndim == 2 else edge_img
+    overlay  = cv2.addWeighted(edge_bgr, 0.7, work, 0.3, 0)
+    _draw_crosshair(overlay, work_w // 2, work_h // 2)
+    _draw_quads(overlay, candidates)
+
+    n = len(candidates)
+    if n > 0 and final_quad_box[0] is None:
+        final_quad_box[0] = candidates[0][0]
+        desc = (f"✅ {n} valid quad(s) · "
+                f"winner (green) {candidates[0][1]:.0f} px from centre")
+    else:
+        suffix = " · already solved at earlier step" if final_quad_box[0] is not None else ""
+        desc = f"{n} valid quad(s){suffix}"
 
     return {"title": title, "image": _encode_b64(overlay), "description": desc}
 
@@ -499,8 +697,10 @@ def detect_plate_corners_debug(
     blurred    = cv2.GaussianBlur(gray, (7, 7), 0)
     plate_color = _sample_plate_color(img_lab)
 
-    enhanced     = _enhance_chromatic(work)
-    enhanced_hsv = cv2.cvtColor(enhanced, cv2.COLOR_BGR2HSV)
+    enhanced      = _enhance_chromatic(work)
+    enhanced_hls  = cv2.cvtColor(enhanced, cv2.COLOR_BGR2HLS)
+    enhanced_sat  = enhanced_hls[:, :, 2]   # S channel: plate=dark, BG=bright
+    enhanced_hsv  = cv2.cvtColor(enhanced, cv2.COLOR_BGR2HSV)
 
     ph = max(1, int(work_h * _CENTER_PATCH_F))
     pw = max(1, int(work_w * _CENTER_PATCH_F))
@@ -527,7 +727,18 @@ def detect_plate_corners_debug(
                       "Neutral-gray plates become clearly distinct from coloured backgrounds."
                   )})
 
-    # ── Step 3: sampled colour swatch ────────────────────────────────────────
+    # ── Step 3: enhanced saturation channel ──────────────────────────────────
+    sat_bgr = cv2.cvtColor(enhanced_sat, cv2.COLOR_GRAY2BGR)
+    _draw_crosshair(sat_bgr, work_w // 2, work_h // 2)
+    steps.append({"title": "Step 3 — Enhanced saturation channel (S)",
+                  "image": _encode_b64(sat_bgr),
+                  "description": (
+                      "S channel from the enhanced HLS image. "
+                      "Plate = dark (S≈0), coloured background = bright. "
+                      "Canny on this channel finds the plate boundary as the sharpest edge."
+                  )})
+
+    # ── Step 4: sampled colour swatch ────────────────────────────────────────
     lab_px = np.array([[[round(plate_color[0]), round(plate_color[1]), round(plate_color[2])]]],
                       dtype=np.uint8)
     bgr = cv2.cvtColor(lab_px, cv2.COLOR_LAB2BGR)[0][0]
@@ -537,50 +748,77 @@ def detect_plate_corners_debug(
     cv2.putText(swatch, f"RGB  ({r}, {g}, {b})", (12, 50), cv2.FONT_HERSHEY_SIMPLEX, 0.8, tc, 2)
     cv2.putText(swatch, f"LAB  ({plate_color[0]:.0f}, {plate_color[1]:.0f}, {plate_color[2]:.0f})",
                 (12, 90), cv2.FONT_HERSHEY_SIMPLEX, 0.8, tc, 2)
-    steps.append({"title": "Step 3 — Sampled plate colour",
+    steps.append({"title": "Step 4 — Sampled plate colour",
                   "image": _encode_b64(swatch),
                   "description": "Dominant colour of the centre patch — ΔE distances are measured from this."})
 
-    # Mutable box so _make_mask_step can record the first winner found
+    # Mutable box so helpers can record the first winner found
     fq = [None]   # fq[0] = winning quad once found, else None
 
-    # ── Strategy 0: Backprojection on ENHANCED image (highest priority) ───────
+    # ── Strategy A: Canny on enhanced saturation channel ─────────────────────
+    canny_esat = _canny_candidates(enhanced_sat, work_w, work_h, min_area, expected_ratio)
+    blurred_esat = cv2.GaussianBlur(enhanced_sat, (5, 5), 0)
+    edge_esat = cv2.Canny(blurred_esat, 30, 100)
+    steps.append(_make_edge_step(
+        "A — Canny on enhanced-S channel", canny_esat, edge_esat, work, work_w, work_h, fq,
+    ))
+
+    # ── Strategy B: Hough on enhanced saturation channel ─────────────────────
+    hough_esat = _hough_candidates(enhanced_sat, work_w, work_h, min_area, expected_ratio)
+    steps.append(_make_edge_step(
+        "B — Hough lines on enhanced-S channel", hough_esat, edge_esat, work, work_w, work_h, fq,
+    ))
+
+    # ── Strategy C: Canny on original gray ───────────────────────────────────
+    canny_gray = _canny_candidates(gray, work_w, work_h, min_area, expected_ratio)
+    edge_gray  = cv2.Canny(cv2.GaussianBlur(gray, (5, 5), 0), 30, 100)
+    steps.append(_make_edge_step(
+        "C — Canny on original grayscale", canny_gray, edge_gray, work, work_w, work_h, fq,
+    ))
+
+    # ── Strategy D: Hough on original gray ───────────────────────────────────
+    hough_gray = _hough_candidates(gray, work_w, work_h, min_area, expected_ratio)
+    steps.append(_make_edge_step(
+        "D — Hough lines on original grayscale", hough_gray, edge_gray, work, work_w, work_h, fq,
+    ))
+
+    # ── Strategy E: Backprojection on ENHANCED image ──────────────────────────
     for t in _BACKPROJ_THRESHOLDS:
         steps.append(_make_mask_step(
-            f"Enhanced backprojection H+S  threshold={t}",
+            f"E — Enhanced backprojection H+S  threshold={t}",
             _hsv_backprojection_mask(enhanced_hsv, center_enhanced_hsv, t),
             enhanced, work_w, work_h, min_area, expected_ratio, fq,
         ))
 
-    # ── Strategy 1: HSV histogram backprojection on original ─────────────────
+    # ── Strategy F: HSV histogram backprojection on original ─────────────────
     for t in _BACKPROJ_THRESHOLDS:
         steps.append(_make_mask_step(
-            f"Backprojection H+S  threshold={t}",
+            f"F — Backprojection H+S  threshold={t}",
             _hsv_backprojection_mask(img_hsv, center_hsv, t),
             work, work_w, work_h, min_area, expected_ratio, fq,
         ))
 
-    # ── Strategy 2: Chrominance A+B (lighting-invariant) ─────────────────────
+    # ── Strategy G: Chrominance A+B (lighting-invariant) ─────────────────────
     for t in _AB_THRESHOLDS:
         steps.append(_make_mask_step(
-            f"Chrominance A+B  ΔE ≤ {t}",
+            f"G — Chrominance A+B  ΔE ≤ {t}",
             _ab_distance_mask(img_lab, plate_color, t),
             work, work_w, work_h, min_area, expected_ratio, fq,
         ))
 
-    # ── Strategy 3: Full LAB ΔE ───────────────────────────────────────────────
+    # ── Strategy H: Full LAB ΔE ───────────────────────────────────────────────
     for t in _COLOR_THRESHOLDS:
         steps.append(_make_mask_step(
-            f"Full LAB ΔE ≤ {t}",
+            f"H — Full LAB ΔE ≤ {t}",
             _color_distance_mask(img_lab, plate_color, t),
             work, work_w, work_h, min_area, expected_ratio, fq,
         ))
 
-    # ── Strategy 4: Otsu fallback ─────────────────────────────────────────────
+    # ── Strategy I: Otsu fallback ─────────────────────────────────────────────
     for invert in (False, True):
         label = "inverted" if invert else "normal"
         steps.append(_make_mask_step(
-            f"Otsu ({label})",
+            f"I — Otsu ({label})",
             _otsu_mask(blurred, invert=invert),
             work, work_w, work_h, min_area, expected_ratio, fq,
         ))
