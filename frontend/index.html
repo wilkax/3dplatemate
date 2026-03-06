@@ -4,73 +4,225 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>3D Print Plate Cleaner</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <style>
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: system-ui, sans-serif; background: #f4f4f5; color: #18181b; min-height: 100vh; display: flex; flex-direction: column; align-items: center; padding: 2rem 1rem; }
-    h1 { font-size: 1.6rem; font-weight: 700; margin-bottom: .25rem; }
-    p.subtitle { color: #71717a; margin-bottom: 2rem; font-size: .95rem; }
+    /* ── Design tokens ── */
+    :root {
+      --bg:          #07111e;
+      --surface:     #0f2035;
+      --surface-2:   #162d47;
+      --border:      #1e3a56;
+      --border-2:    #2b4f70;
+      --accent:      #4ac4d0;
+      --accent-dark: #33a0ab;
+      --accent-glow: rgba(74,196,208,.18);
+      --blue:        #3f7db9;
+      --text:        #e2eaf4;
+      --text-muted:  #7a9bba;
+      --danger:      #ef4444;
+      --danger-dark: #dc2626;
+      --success-bg:  rgba(74,196,208,.12);
+      --success-fg:  #4ac4d0;
+      --error-bg:    rgba(239,68,68,.1);
+      --error-fg:    #f87171;
+      --loading-bg:  rgba(63,125,185,.12);
+      --loading-fg:  #60a5fa;
+    }
 
-    /* ── Step 1 ── */
-    .card { background: #fff; border-radius: 12px; box-shadow: 0 1px 6px rgba(0,0,0,.1); padding: 2rem; width: 100%; max-width: 520px; display: flex; flex-direction: column; gap: 1.25rem; }
-    label { font-size: .875rem; font-weight: 600; display: block; margin-bottom: .35rem; }
-    .drop-zone { border: 2px dashed #d4d4d8; border-radius: 8px; padding: 2rem 1rem; text-align: center; cursor: pointer; transition: border-color .2s, background .2s; }
-    .drop-zone:hover, .drop-zone.over { border-color: #6366f1; background: #eef2ff; }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Inter', system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 0 1rem 3rem;
+    }
+
+    /* ── Banner / header ── */
+    .site-header {
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 2.5rem 1rem 2rem;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 2.5rem;
+      background: linear-gradient(180deg, rgba(74,196,208,.06) 0%, transparent 100%);
+    }
+    .site-header img.logo {
+      height: 56px;
+      width: auto;
+      display: block;
+    }
+    p.subtitle {
+      color: var(--text-muted);
+      margin-top: .75rem;
+      font-size: .9rem;
+      letter-spacing: .01em;
+    }
+
+    /* ── Cards ── */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      box-shadow: 0 4px 24px rgba(0,0,0,.35);
+      padding: 2rem;
+      width: 100%;
+      max-width: 520px;
+      display: flex;
+      flex-direction: column;
+      gap: 1.25rem;
+    }
+
+    label { font-size: .875rem; font-weight: 600; display: block; margin-bottom: .35rem; color: var(--text); }
+
+    .drop-zone {
+      border: 2px dashed var(--border-2);
+      border-radius: 10px;
+      padding: 2rem 1rem;
+      text-align: center;
+      cursor: pointer;
+      transition: border-color .2s, background .2s;
+    }
+    .drop-zone:hover, .drop-zone.over {
+      border-color: var(--accent);
+      background: var(--accent-glow);
+    }
     .drop-zone input[type=file] { display: none; }
-    .drop-zone span { color: #71717a; font-size: .875rem; }
-    .drop-zone strong { color: #6366f1; }
+    .drop-zone span { color: var(--text-muted); font-size: .875rem; }
+    .drop-zone strong { color: var(--accent); }
+
     #preview { max-width: 100%; max-height: 220px; border-radius: 6px; margin-top: .75rem; display: none; }
+
     .radio-group { display: flex; gap: 1rem; }
-    .radio-group label { font-weight: 400; display: flex; align-items: center; gap: .4rem; cursor: pointer; }
-    select, input[type=number] { width: 100%; border: 1px solid #d4d4d8; border-radius: 6px; padding: .5rem .75rem; font-size: .9rem; background: #fafafa; }
-    select:focus, input[type=number]:focus { outline: 2px solid #6366f1; border-color: transparent; }
+    .radio-group label { font-weight: 400; display: flex; align-items: center; gap: .4rem; cursor: pointer; color: var(--text-muted); }
+    .radio-group label:has(input:checked) { color: var(--accent); }
+    .radio-group input[type=radio] { accent-color: var(--accent); }
+
+    select, input[type=number] {
+      width: 100%;
+      border: 1px solid var(--border-2);
+      border-radius: 8px;
+      padding: .55rem .75rem;
+      font-size: .9rem;
+      font-family: inherit;
+      background: var(--surface-2);
+      color: var(--text);
+    }
+    select:focus, input[type=number]:focus {
+      outline: 2px solid var(--accent);
+      border-color: transparent;
+    }
+    select option { background: var(--surface-2); }
+
     .row { display: flex; gap: .75rem; }
     .row > div { flex: 1; }
     #manual-section { display: none; }
 
     /* ── Corner editor ── */
     #stepCorners { display: none; width: 100%; max-width: 900px; }
-    .corner-card { background: #fff; border-radius: 12px; box-shadow: 0 1px 6px rgba(0,0,0,.1); padding: 1.5rem; display: flex; flex-direction: column; gap: 1rem; }
-    .corner-card h2 { font-size: 1.1rem; font-weight: 700; }
-    .corner-card p  { font-size: .875rem; color: #71717a; }
-    #cornerCanvas { max-width: 100%; height: auto; display: block; border-radius: 8px; border: 2px solid #d4d4d8; cursor: crosshair; touch-action: none; }
+    .corner-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      box-shadow: 0 4px 24px rgba(0,0,0,.35);
+      padding: 1.5rem;
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+    }
+    .corner-card h2 { font-size: 1.1rem; font-weight: 700; color: var(--text); }
+    .corner-card p  { font-size: .875rem; color: var(--text-muted); }
+    #cornerCanvas { max-width: 100%; height: auto; display: block; border-radius: 8px; border: 2px solid var(--border-2); cursor: crosshair; touch-action: none; }
     .corner-actions { display: flex; gap: .75rem; flex-wrap: wrap; }
+
+    /* ── Zoom lens ── */
+    #zoomLens {
+      display: none; position: fixed; pointer-events: none; z-index: 9999;
+      width: 130px; height: 130px; border-radius: 50%;
+      border: 3px solid #22c55e;
+      box-shadow: 0 4px 20px rgba(0,0,0,.6), 0 0 0 1px rgba(34,197,94,.4);
+      overflow: hidden; background: #111;
+    }
+    #zoomCanvas { display: block; width: 100%; height: 100%; }
 
     /* ── Step 2 ── */
     #step2 { display: none; width: 100%; max-width: 1100px; }
     .step2-layout { display: flex; gap: 1.5rem; align-items: flex-start; }
     .canvas-area { flex: 1; min-width: 0; }
-    .canvas-wrapper { position: relative; display: block; width: 100%; line-height: 0; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 6px rgba(0,0,0,.15); cursor: crosshair; }
+    .canvas-wrapper {
+      position: relative; display: block; width: 100%; line-height: 0;
+      border-radius: 10px; overflow: hidden;
+      box-shadow: 0 2px 20px rgba(0,0,0,.5);
+      cursor: crosshair;
+    }
     #bgCanvas    { display: block; width: 100%; height: auto; }
     #paintCanvas { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0.65; }
     #guideCanvas { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
 
     .tool-group { display: flex; flex-direction: column; gap: .4rem; }
 
-    .controls { background: #fff; border-radius: 12px; box-shadow: 0 1px 6px rgba(0,0,0,.1); padding: 1.5rem; width: 220px; flex-shrink: 0; display: flex; flex-direction: column; gap: 1rem; }
-    .controls h2 { font-size: 1rem; font-weight: 700; }
-    .controls p  { font-size: .8rem; color: #71717a; line-height: 1.4; }
-    .controls label { font-size: .8rem; font-weight: 600; margin-bottom: .2rem; }
-    .controls input[type=range] { width: 100%; accent-color: #6366f1; }
+    .controls {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      box-shadow: 0 4px 24px rgba(0,0,0,.35);
+      padding: 1.5rem;
+      width: 220px;
+      flex-shrink: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+    }
+    .controls h2 { font-size: 1rem; font-weight: 700; color: var(--text); }
+    .controls p  { font-size: .8rem; color: var(--text-muted); line-height: 1.5; }
+    .controls label { font-size: .8rem; font-weight: 600; margin-bottom: .2rem; color: var(--text-muted); }
+    .controls input[type=range] { width: 100%; accent-color: var(--accent); }
     .brush-preview { width: 100%; height: 48px; display: flex; align-items: center; justify-content: center; }
-    .brush-dot { background: rgba(239,68,68,.6); border-radius: 50%; }
+    .brush-dot { background: rgba(239,68,68,.65); border-radius: 50%; }
 
-    .btn { border: none; border-radius: 8px; padding: .65rem 1rem; font-size: .9rem; font-weight: 600; cursor: pointer; transition: background .2s, opacity .2s; width: 100%; }
-    .btn:disabled { opacity: .45; cursor: not-allowed; }
-    .btn-primary  { background: #6366f1; color: #fff; }
-    .btn-primary:hover:not(:disabled) { background: #4f46e5; }
-    .btn-danger   { background: #ef4444; color: #fff; }
-    .btn-danger:hover:not(:disabled)  { background: #dc2626; }
-    .btn-ghost    { background: #f4f4f5; color: #18181b; }
-    .btn-ghost:hover:not(:disabled)   { background: #e4e4e7; }
-    .btn-active   { outline: 2px solid #6366f1; }
+    /* ── Buttons ── */
+    .btn {
+      border: none;
+      border-radius: 8px;
+      padding: .65rem 1rem;
+      font-size: .875rem;
+      font-family: inherit;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background .18s, opacity .18s, box-shadow .18s;
+      width: 100%;
+    }
+    .btn:disabled { opacity: .4; cursor: not-allowed; }
 
-    /* shared status */
-    .status-box { border-radius: 8px; padding: .75rem 1rem; font-size: .85rem; display: none; }
-    .status-box.loading { background: #eff6ff; color: #1d4ed8; }
-    .status-box.error   { background: #fef2f2; color: #b91c1c; }
-    .status-box.success { background: #f0fdf4; color: #166534; }
+    .btn-primary  { background: var(--accent); color: #07111e; }
+    .btn-primary:hover:not(:disabled) { background: var(--accent-dark); box-shadow: 0 0 14px var(--accent-glow); }
+
+    .btn-danger   { background: var(--danger); color: #fff; }
+    .btn-danger:hover:not(:disabled)  { background: var(--danger-dark); }
+
+    .btn-ghost    { background: var(--surface-2); color: var(--text); border: 1px solid var(--border-2); }
+    .btn-ghost:hover:not(:disabled)   { background: var(--border); }
+
+    .btn-active   { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+    /* ── Status boxes ── */
+    .status-box { border-radius: 8px; padding: .75rem 1rem; font-size: .85rem; display: none; border: 1px solid transparent; }
+    .status-box.loading { background: var(--loading-bg); color: var(--loading-fg); border-color: rgba(63,125,185,.25); }
+    .status-box.error   { background: var(--error-bg);   color: var(--error-fg);   border-color: rgba(239,68,68,.25); }
+    .status-box.success { background: var(--success-bg); color: var(--success-fg); border-color: rgba(74,196,208,.25); }
+
     .spinner { display: inline-block; width: 1em; height: 1em; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: spin .7s linear infinite; vertical-align: middle; margin-right: .4rem; }
     @keyframes spin { to { transform: rotate(360deg); } }
+
+    hr.divider { border: none; border-top: 1px solid var(--border); }
 
     @media (max-width: 640px) {
       .step2-layout { flex-direction: column; }
@@ -80,8 +232,10 @@
   </style>
 </head>
 <body>
-  <h1>🖨 3D Print Plate Cleaner</h1>
-  <p class="subtitle">Photograph your plate → paint dirty spots → get a clean STL</p>
+  <header class="site-header">
+    <img class="logo" src="/logo.png" alt="3D Print Plate Cleaner" />
+    <p class="subtitle">Photograph your plate → paint dirty spots → get a clean STL</p>
+  </header>
 
   <!-- ── Step 1: Upload ── -->
   <div id="step1">
@@ -170,7 +324,7 @@
 
         <button class="btn btn-ghost" id="clearBtn">🗑 Clear all</button>
 
-        <hr style="border:none;border-top:1px solid #e4e4e7" />
+        <hr class="divider" />
 
         <button class="btn btn-primary" id="generateBtn">Generate STL</button>
         <button class="btn btn-ghost" id="backBtn">← Start over</button>
@@ -180,6 +334,9 @@
 
     </div>
   </div>
+
+<!-- ── Zoom lens overlay (touch magnifier for corner editor) ── -->
+<div id="zoomLens"><canvas id="zoomCanvas"></canvas></div>
 
 <script>
 // ─── State ────────────────────────────────────────────────────────────────────
@@ -229,6 +386,15 @@ const confirmCornersBtn = document.getElementById('confirmCornersBtn');
 const CORNER_ORDER     = ['top_left', 'top_right', 'bottom_right', 'bottom_left'];
 const CORNER_LABELS    = { top_left: 'TL', top_right: 'TR', bottom_right: 'BR', bottom_left: 'BL' };
 const HANDLE_R         = 14;   // handle radius in canvas pixels
+
+// ─── Zoom lens ────────────────────────────────────────────────────────────────
+const zoomLens   = document.getElementById('zoomLens');
+const zoomCanvas = document.getElementById('zoomCanvas');
+const zoomCtx    = zoomCanvas.getContext('2d');
+const ZOOM_SIZE  = 130;   // lens diameter in CSS px (matches #zoomLens width/height)
+const ZOOM_SCALE = 3.5;   // magnification factor
+zoomCanvas.width  = ZOOM_SIZE;
+zoomCanvas.height = ZOOM_SIZE;
 
 let compressedBlob  = null;    // the compressed image blob held between steps
 let pendingPrinter  = {};      // { printer_id } or { plate_width_mm, plate_height_mm }
@@ -383,6 +549,59 @@ function drawCornerOverlay() {
   });
 }
 
+// ─── Zoom lens helpers ────────────────────────────────────────────────────────
+/**
+ * Render a magnified view of the corner canvas centred on (cx, cy) [image px]
+ * and position the circular lens above the touch point (clientX, clientY).
+ */
+function showZoomLens(clientX, clientY, cx, cy) {
+  // How many source image pixels fit across the lens
+  const sampleW = ZOOM_SIZE / ZOOM_SCALE;
+  const sampleH = ZOOM_SIZE / ZOOM_SCALE;
+
+  zoomCanvas.width  = ZOOM_SIZE;
+  zoomCanvas.height = ZOOM_SIZE;
+
+  // Clip to circle, draw magnified region from the live corner canvas
+  zoomCtx.save();
+  zoomCtx.beginPath();
+  zoomCtx.arc(ZOOM_SIZE / 2, ZOOM_SIZE / 2, ZOOM_SIZE / 2, 0, Math.PI * 2);
+  zoomCtx.clip();
+  zoomCtx.drawImage(
+    cornerCanvas,
+    cx - sampleW / 2, cy - sampleH / 2, sampleW, sampleH,  // source (image coords)
+    0, 0, ZOOM_SIZE, ZOOM_SIZE                               // dest (lens canvas)
+  );
+  zoomCtx.restore();
+
+  // Crosshair centred in the lens
+  const mid = ZOOM_SIZE / 2;
+  const arm = 14;
+  zoomCtx.strokeStyle = 'rgba(34,197,94,0.95)';
+  zoomCtx.lineWidth   = 1.5;
+  zoomCtx.beginPath();
+  zoomCtx.moveTo(mid - arm, mid); zoomCtx.lineTo(mid + arm, mid);
+  zoomCtx.moveTo(mid, mid - arm); zoomCtx.lineTo(mid, mid + arm);
+  zoomCtx.stroke();
+  // Centre dot
+  zoomCtx.fillStyle = 'rgba(34,197,94,0.95)';
+  zoomCtx.beginPath();
+  zoomCtx.arc(mid, mid, 2.5, 0, Math.PI * 2);
+  zoomCtx.fill();
+
+  // Position the lens above the finger, clamped to the viewport
+  const gap   = 30;   // px gap between finger and bottom of lens
+  const lensX = clientX - ZOOM_SIZE / 2;
+  const lensY = clientY - ZOOM_SIZE - gap;
+  zoomLens.style.left    = Math.max(8, Math.min(window.innerWidth  - ZOOM_SIZE - 8, lensX)) + 'px';
+  zoomLens.style.top     = Math.max(8, Math.min(window.innerHeight - ZOOM_SIZE - 8, lensY)) + 'px';
+  zoomLens.style.display = 'block';
+}
+
+function hideZoomLens() {
+  zoomLens.style.display = 'none';
+}
+
 function canvasPoint(e) {
   const rect = cornerCanvas.getBoundingClientRect();
   const sx   = cornerCanvas.width  / rect.width;
@@ -408,7 +627,14 @@ cornerCanvas.addEventListener('mousemove',  e => {
 cornerCanvas.addEventListener('mouseup',    () => { draggingCorner = null; });
 cornerCanvas.addEventListener('mouseleave', () => { draggingCorner = null; });
 
-cornerCanvas.addEventListener('touchstart', e => { e.preventDefault(); draggingCorner = nearestCorner(...canvasPoint(e)); }, { passive: false });
+cornerCanvas.addEventListener('touchstart', e => {
+  e.preventDefault();
+  draggingCorner = nearestCorner(...canvasPoint(e));
+  if (draggingCorner) {
+    const t = e.touches[0];
+    showZoomLens(t.clientX, t.clientY, corners[draggingCorner][0], corners[draggingCorner][1]);
+  }
+}, { passive: false });
 cornerCanvas.addEventListener('touchmove',  e => {
   e.preventDefault();
   if (!draggingCorner) return;
@@ -418,8 +644,10 @@ cornerCanvas.addEventListener('touchmove',  e => {
     Math.max(0, Math.min(cornerCanvas.height, y)),
   ];
   drawCornerOverlay();
+  const t = e.touches[0];
+  showZoomLens(t.clientX, t.clientY, corners[draggingCorner][0], corners[draggingCorner][1]);
 }, { passive: false });
-cornerCanvas.addEventListener('touchend', () => { draggingCorner = null; });
+cornerCanvas.addEventListener('touchend', () => { draggingCorner = null; hideZoomLens(); });
 
 confirmCornersBtn.addEventListener('click', async () => {
   showStatus(statusCorners, 'loading', '<span class="spinner"></span> Processing image…');

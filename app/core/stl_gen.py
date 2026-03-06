@@ -17,7 +17,7 @@ from shapely.validation import make_valid
 
 logger = logging.getLogger(__name__)
 
-CLEANER_HEIGHT_MM = 1.0
+CLEANER_HEIGHT_MM = 0.6
 _MIN_AREA_MM2 = 0.5   # polygons smaller than this (mm²) cannot be extruded meaningfully
 
 
