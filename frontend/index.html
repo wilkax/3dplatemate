@@ -170,13 +170,19 @@
     .tool-group {
       display: flex;
       flex-direction: row;
+      width: 100%;
       gap: .4rem;
     }
     .tool-group .btn {
-      flex: 1;
+      flex: 1 1 0;      /* equal thirds, ignores the base 'width:100%' */
+      width: 0;         /* prevent base .btn width from overflowing */
+      min-width: 0;
       font-size: 1.25rem;
-      padding: .6rem 0;
+      padding: .75rem 0;
       line-height: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
     }
 
     .controls {
@@ -467,7 +473,13 @@ let isDrawing = false;
 let lastX = 0, lastY = 0;
 let polyPoints = [];      // polygon tool: accumulated vertices
 
-const POLY_CLOSE_RADIUS = 18; // canvas px — snap-to-close distance
+const POLY_CLOSE_CSS_PX = 30; // desired snap-to-close zone in *display* px
+
+// Returns how many canvas pixels equal 1 display (CSS) pixel for the paint canvas.
+function paintPxRatio() {
+  const rect = paintCanvas.getBoundingClientRect();
+  return rect.width > 0 ? paintCanvas.width / rect.width : 1;
+}
 
 // ─── Elements ─────────────────────────────────────────────────────────────────
 const step1            = document.getElementById('step1');
@@ -855,7 +867,7 @@ function addPolyPoint(pos) {
   if (polyPoints.length >= 3) {
     const f = polyPoints[0];
     const d = Math.hypot(pos.x - f.x, pos.y - f.y);
-    if (d < POLY_CLOSE_RADIUS) { commitPolygon(); return; }
+    if (d < POLY_CLOSE_CSS_PX * paintPxRatio()) { commitPolygon(); return; }
   }
   polyPoints.push(pos);
   drawGuide(null);
@@ -878,12 +890,20 @@ function drawGuide(cursor) {
   clearGuide();
   if (polyPoints.length === 0) return;
   const ctx = guideCtx;
+
+  // Scale all sizes relative to the canvas-to-display pixel ratio so dots and
+  // lines remain a consistent physical size regardless of image resolution.
+  const s        = paintPxRatio();
+  const closeR   = POLY_CLOSE_CSS_PX * s;
+  const dotFirst = 22 * s;   // radius of the first vertex (close-target) in canvas px
+  const dotOther = 14 * s;   // radius of interior vertices in canvas px
+
   const canClose = cursor && polyPoints.length >= 3 &&
-    Math.hypot(cursor.x - polyPoints[0].x, cursor.y - polyPoints[0].y) < POLY_CLOSE_RADIUS;
+    Math.hypot(cursor.x - polyPoints[0].x, cursor.y - polyPoints[0].y) < closeR;
 
   // Lines between committed points
   ctx.strokeStyle = 'rgba(99,102,241,0.9)';
-  ctx.lineWidth = 2;
+  ctx.lineWidth = 2.5 * s;
   ctx.setLineDash([]);
   ctx.beginPath();
   ctx.moveTo(polyPoints[0].x, polyPoints[0].y);
@@ -892,7 +912,7 @@ function drawGuide(cursor) {
 
   // Dashed preview line to cursor
   if (cursor) {
-    ctx.setLineDash([6, 4]);
+    ctx.setLineDash([8 * s, 5 * s]);
     ctx.beginPath();
     ctx.moveTo(polyPoints[polyPoints.length - 1].x, polyPoints[polyPoints.length - 1].y);
     ctx.lineTo(cursor.x, cursor.y);
@@ -905,7 +925,7 @@ function drawGuide(cursor) {
     const isFirst = i === 0;
     ctx.fillStyle = (isFirst && canClose) ? 'rgba(34,197,94,0.95)' : 'rgba(99,102,241,0.95)';
     ctx.beginPath();
-    ctx.arc(pt.x, pt.y, isFirst ? 8 : 5, 0, Math.PI * 2);
+    ctx.arc(pt.x, pt.y, isFirst ? dotFirst : dotOther, 0, Math.PI * 2);
     ctx.fill();
   });
 }
