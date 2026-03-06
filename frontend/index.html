@@ -97,16 +97,16 @@
         </div>
 
         <div>
-          <label>Printer / plate size</label>
+          <label>Build plate size</label>
           <div class="radio-group">
-            <label><input type="radio" name="mode" value="list" checked /> Select printer</label>
+            <label><input type="radio" name="mode" value="list" checked /> Select size</label>
             <label><input type="radio" name="mode" value="manual" /> Enter manually</label>
           </div>
         </div>
 
         <div id="list-section">
           <select id="printerSelect">
-            <option value="">Loading printers…</option>
+            <option value="">Loading sizes…</option>
           </select>
         </div>
 
@@ -237,15 +237,15 @@ let corners         = {};      // { top_left:[x,y], top_right:[x,y], ... } in im
 let draggingCorner  = null;
 
 // ─── Step 1 setup ─────────────────────────────────────────────────────────────
-fetch('/api/v1/printers').then(r => r.json()).then(printers => {
-  printerSel.innerHTML = '<option value="">— select a printer —</option>' +
-    printers.map(p => `<option value="${p.id}">${p.name} (${p.plate_width_mm}×${p.plate_height_mm} mm)</option>`).join('');
+fetch('/api/v1/printers').then(r => r.json()).then(sizes => {
+  printerSel.innerHTML = '<option value="">— select a plate size —</option>' +
+    sizes.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
 }).catch(() => { printerSel.innerHTML = '<option value="">Failed to load — use manual mode</option>'; });
 
 document.querySelectorAll('input[name=mode]').forEach(r => r.addEventListener('change', e => {
   const manual = e.target.value === 'manual';
-  listSection.style.display = manual ? 'none' : '';
-  manualSec.style.display   = manual ? '' : 'none';
+  listSection.style.display = manual ? 'none' : 'block';
+  manualSec.style.display   = manual ? 'block' : 'none';
 }));
 
 dropZone.addEventListener('click', () => imageInput.click());
@@ -303,7 +303,7 @@ document.getElementById('prepareForm').addEventListener('submit', async e => {
     pendingPrinter = { plate_width_mm: w, plate_height_mm: h };
   } else {
     const id = printerSel.value;
-    if (!id) { showStatus(status1, 'error', 'Please select a printer.'); return; }
+    if (!id) { showStatus(status1, 'error', 'Please select a plate size.'); return; }
     fd.append('printer_id', id);
     pendingPrinter = { printer_id: id };
   }
