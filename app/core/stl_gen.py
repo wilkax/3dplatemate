@@ -1,8 +1,12 @@
 """
-STL generation.
+3MF generation.
 
 Takes a list of 2-D polygons (in mm) and extrudes each one to `height_mm` tall,
-then combines them all into a single binary STL file ready for slicing.
+then packs them as separate named objects into a single 3MF file ready for slicing.
+
+Using 3MF instead of STL means slicers (e.g. Bambu Studio) already see each
+scraper bump and the reference frame as individual objects — no "Split by Objects"
+step required.
 """
 
 from __future__ import annotations
@@ -73,20 +77,24 @@ def _make_plate_frame(plate_width_mm: float, plate_height_mm: float) -> trimesh.
     return trimesh.creation.extrude_polygon(frame_shape, height=_FRAME_HEIGHT_MM)
 
 
-def generate_stl(
+def generate_3mf(
     polygons_mm: list[list[list[float]]],
     height_mm: float = CLEANER_HEIGHT_MM,
     plate_width_mm: float | None = None,
     plate_height_mm: float | None = None,
 ) -> bytes:
     """
-    Generate a single binary STL containing one extruded object per dirty spot,
+    Generate a 3MF file containing one named object per dirty spot,
     plus an optional thin reference frame around the plate boundary.
+
+    Each polygon becomes a separate object in the scene so slicers such as
+    Bambu Studio can see and manipulate them individually without needing a
+    manual "Split by Objects" step.
 
     Parameters
     ----------
     polygons_mm     : list of polygons; each polygon is a list of [x, y] mm coords.
-    height_mm       : extrusion height for the scraper bumps (default: 1.0 mm).
+    height_mm       : extrusion height for the scraper bumps (default: 0.6 mm).
     plate_width_mm  : if provided (together with plate_height_mm), a thin reference
                       frame the size of the build plate is added so slicers place the
                       scraper at the correct position instead of auto-centring it.
@@ -94,7 +102,7 @@ def generate_stl(
 
     Returns
     -------
-    Binary STL file contents as bytes.
+    3MF file contents as bytes.
 
     Raises
     ------
@@ -103,30 +111,30 @@ def generate_stl(
     if not polygons_mm:
         raise ValueError("No polygons provided — nothing to generate.")
 
-    meshes: list[trimesh.Trimesh] = []
+    scene = trimesh.Scene()
+    successful = 0
     for i, polygon in enumerate(polygons_mm):
         try:
             mesh = _polygon_to_mesh(polygon, height_mm)
-            meshes.append(mesh)
+            scene.add_geometry(mesh, geom_name=f"spot_{i + 1}")
+            successful += 1
         except Exception as exc:
             # Skip degenerate polygons but don't abort the whole request
             logger.warning("Skipping polygon %d due to error: %s", i, exc)
 
-    if not meshes:
-        raise ValueError("All polygons were degenerate — no STL generated.")
+    if successful == 0:
+        raise ValueError("All polygons were degenerate — no 3MF generated.")
 
     # Add a thin plate-boundary frame so the slicer preserves the correct position
     if plate_width_mm and plate_height_mm:
         try:
             frame = _make_plate_frame(plate_width_mm, plate_height_mm)
-            meshes.append(frame)
+            scene.add_geometry(frame, geom_name="plate_frame")
         except Exception as exc:
             logger.warning("Could not add plate reference frame: %s", exc)
 
-    combined = trimesh.util.concatenate(meshes)
-
-    # Export to binary STL in memory
+    # Export to 3MF in memory — each named geometry is a separate object in the slicer
     buffer = io.BytesIO()
-    combined.export(buffer, file_type="stl")
+    scene.export(buffer, file_type="3mf")
     return buffer.getvalue()
 

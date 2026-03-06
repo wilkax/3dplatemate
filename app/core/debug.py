@@ -10,7 +10,7 @@ For each request a timestamped folder is created under debug_output/:
       ├── 03_corrected.jpg           perspective-corrected top-down view
       ├── 04_spots.json              CV spot detection result
       ├── 05_spots_visualization.jpg corrected view with detected polygons drawn
-      └── 06_plate_cleaner.stl       generated STL
+      └── 06_plate_cleaner.3mf       generated 3MF
 """
 
 from __future__ import annotations
@@ -78,7 +78,7 @@ def save_debug_artifacts(
     spots_result: list[dict],
     raw_polygons_mm: list[list[list[float]]],
     buffered_polygons_mm: list[list[list[float]]],
-    stl_bytes: bytes,
+    file_bytes: bytes,
 ) -> Path:
     """
     Save all intermediate artifacts for one request.
@@ -91,7 +91,7 @@ def save_debug_artifacts(
     spots_result         : CV spot detection result (list of spot dicts)
     raw_polygons_mm      : spot polygons before buffering (mm coords)
     buffered_polygons_mm : spot polygons after buffering+clipping (mm coords)
-    stl_bytes            : generated STL file bytes
+    file_bytes           : generated 3MF file bytes
 
     Returns
     -------
@@ -104,7 +104,7 @@ def save_debug_artifacts(
     03_corrected.jpg           perspective-corrected top-down view
     04_spots.json              CV spot detection result
     05_spots_visualization.jpg corrected view with polygon overlays
-    06_plate_cleaner.stl       generated STL
+    06_plate_cleaner.3mf       generated 3MF
     """
     run_dir = _make_run_dir()
 
@@ -130,7 +130,7 @@ def save_debug_artifacts(
                     0.5, (255, 255, 255), 1, cv2.LINE_AA)
         cv2.imwrite(str(run_dir / "05_spots_visualization.jpg"), vis)
 
-        (run_dir / "06_plate_cleaner.stl").write_bytes(stl_bytes)
+        (run_dir / "06_plate_cleaner.3mf").write_bytes(file_bytes)
 
         logger.info("Debug artifacts saved to %s", run_dir)
 

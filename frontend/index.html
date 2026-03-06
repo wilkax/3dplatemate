@@ -234,7 +234,7 @@
 <body>
   <header class="site-header">
     <img class="logo" src="/logo.png" alt="3D Print Plate Cleaner" />
-    <p class="subtitle">Photograph your plate → paint dirty spots → get a clean STL</p>
+    <p class="subtitle">Photograph your plate → paint dirty spots → get a clean 3MF</p>
   </header>
 
   <!-- ── Step 1: Upload ── -->
@@ -326,7 +326,7 @@
 
         <hr class="divider" />
 
-        <button class="btn btn-primary" id="generateBtn">Generate STL</button>
+        <button class="btn btn-primary" id="generateBtn">Generate 3MF</button>
         <button class="btn btn-ghost" id="backBtn">← Start over</button>
 
         <div id="status2" class="status-box"></div>
@@ -855,7 +855,7 @@ backBtn.addEventListener('click', () => {
   hideStatus(status1);
 });
 
-// ─── Export mask & generate STL ───────────────────────────────────────────────
+// ─── Export mask & generate 3MF ───────────────────────────────────────────────
 generateBtn.addEventListener('click', async () => {
   // Build a white-on-black mask from the paint layer
   const offscreen = document.createElement('canvas');
@@ -892,9 +892,9 @@ generateBtn.addEventListener('click', async () => {
       const stlBlob = await resp.blob();
       const url = URL.createObjectURL(stlBlob);
       const a = document.createElement('a');
-      a.href = url; a.download = 'plate_cleaner.stl'; a.click();
+      a.href = url; a.download = 'plate_cleaner.3mf'; a.click();
       URL.revokeObjectURL(url);
-      showStatus(status2, 'success', '✓ STL downloaded! Load it into your slicer.');
+      showStatus(status2, 'success', '✓ 3MF downloaded! Load it into your slicer.');
     } else {
       const data = await resp.json().catch(() => ({}));
       showStatus(status2, 'error', `Error ${resp.status}: ${data.detail || resp.statusText}`);

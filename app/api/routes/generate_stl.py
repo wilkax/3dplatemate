@@ -25,7 +25,7 @@ from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from fastapi.responses import Response
 
 from app.core.geometry import buffer_polygon
-from app.core.stl_gen import generate_stl
+from app.core.stl_gen import generate_3mf
 from app.core.training_data import save_mask
 
 logger = logging.getLogger(__name__)
@@ -46,7 +46,7 @@ async def generate_stl_from_mask(
     session_id: Optional[str] = Form(None, description="Session ID from /prepare — links mask to plate images"),
 ):
     """
-    Convert a user-painted mask into a plate_cleaner.stl file.
+    Convert a user-painted mask into a plate_cleaner.3mf file.
 
     The mask must be a PNG at the same resolution as the image returned
     by /prepare (width = plate_width_mm * px_per_mm).
@@ -105,18 +105,18 @@ async def generate_stl_from_mask(
         )
 
     try:
-        stl_bytes = generate_stl(buffered_polygons_mm, plate_width_mm=plate_width_mm, plate_height_mm=plate_height_mm)
+        file_bytes = generate_3mf(buffered_polygons_mm, plate_width_mm=plate_width_mm, plate_height_mm=plate_height_mm)
     except ValueError as exc:
         raise HTTPException(status_code=500, detail=str(exc))
 
     logger.info(
-        "Generated STL from mask: %d spot(s), plate %.0fx%.0f mm, %.1f KB",
-        len(buffered_polygons_mm), plate_width_mm, plate_height_mm, len(stl_bytes) / 1024,
+        "Generated 3MF from mask: %d spot(s), plate %.0fx%.0f mm, %.1f KB",
+        len(buffered_polygons_mm), plate_width_mm, plate_height_mm, len(file_bytes) / 1024,
     )
 
     return Response(
-        content=stl_bytes,
-        media_type="application/octet-stream",
-        headers={"Content-Disposition": 'attachment; filename="plate_cleaner.stl"'},
+        content=file_bytes,
+        media_type="model/3mf",
+        headers={"Content-Disposition": 'attachment; filename="plate_cleaner.3mf"'},
     )
 
