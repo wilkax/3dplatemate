@@ -23,9 +23,9 @@ logging.basicConfig(
 )
 
 app = FastAPI(
-    title="3D Print Plate Cleaner",
+    title="3DPLATEMATE.COM",
     description=(
-        "Upload a photo of your build plate and receive a ready-to-slice STL "
+        "Upload a photo of your build plate and receive a ready-to-slice 3MF "
         "with cleaner objects precisely positioned over every dirty spot."
     ),
     version="0.1.0",
@@ -40,7 +40,7 @@ app.add_middleware(
 )
 
 app.include_router(prepare.router,          prefix="/api/v1", tags=["Prepare"])
-app.include_router(generate_stl.router,     prefix="/api/v1", tags=["Generate STL"])
+app.include_router(generate_stl.router,     prefix="/api/v1", tags=["Generate 3MF"])
 app.include_router(printers.router,         prefix="/api/v1", tags=["Printers"])
 app.include_router(debug_detection.router,  prefix="/api/v1", tags=["Debug"])
 
