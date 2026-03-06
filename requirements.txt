@@ -6,6 +6,7 @@ numpy
 shapely
 trimesh
 networkx
+lxml
 mapbox-earcut
 python-dotenv
 pydantic-settings
