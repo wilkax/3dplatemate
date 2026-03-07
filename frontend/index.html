@@ -335,6 +335,7 @@
       .step2-layout { flex-direction: column; }
       .controls { width: 100%; flex-direction: row; flex-wrap: wrap; }
       .controls h2, .controls p { width: 100%; }
+      #coffeePrompt { width: 100%; }
     }
 
     /* ── Footer / Imprint ── */
@@ -457,7 +458,6 @@
             <img src="https://cdn.buymeacoffee.com/buttons/bmc-new-btn-logo.svg" alt="" />
           </a>
         </div>
-      </div>
 
     </div>
   </div>
@@ -895,8 +895,8 @@ function drawGuide(cursor) {
   // lines remain a consistent physical size regardless of image resolution.
   const s        = paintPxRatio();
   const closeR   = POLY_CLOSE_CSS_PX * s;
-  const dotFirst = 22 * s;   // radius of the first vertex (close-target) in canvas px
-  const dotOther = 14 * s;   // radius of interior vertices in canvas px
+  const dotFirst = 14 * s;   // radius of the first vertex (close-target) in canvas px
+  const dotOther = 8 * s;   // radius of interior vertices in canvas px
 
   const canClose = cursor && polyPoints.length >= 3 &&
     Math.hypot(cursor.x - polyPoints[0].x, cursor.y - polyPoints[0].y) < closeR;
@@ -1012,7 +1012,7 @@ generateBtn.addEventListener('click', async () => {
   fd.append('plate_height_mm', plateHeightMm);
   if (sessionId) fd.append('session_id', sessionId);
 
-  showStatus(status2, 'loading', '<span class="spinner"></span> Generating STL…');
+  showStatus(status2, 'loading', '<span class="spinner"></span> Generating 3MF...');
   generateBtn.disabled = true;
 
   try {
@@ -1021,7 +1021,7 @@ generateBtn.addEventListener('click', async () => {
       const stlBlob = await resp.blob();
       const url = URL.createObjectURL(stlBlob);
       const a = document.createElement('a');
-      a.href = url; a.download = 'plate_cleaner.3mf'; a.click();
+      a.href = url; a.download = '3Dplatemate.com.3mf'; a.click();
       URL.revokeObjectURL(url);
       showStatus(status2, 'success', '✓ 3MF downloaded! Load it into your slicer.');
       document.getElementById('coffeePrompt').style.display = 'flex';

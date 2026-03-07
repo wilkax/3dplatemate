@@ -45,8 +45,11 @@
 </head>
 <body>
 
-<h1>Plate Detection Debug <span class="badge">Bambu Lab A1 · 256 × 256 mm</span></h1>
-<p class="subtitle">Upload a photo to see every intermediate detection step.</p>
+<h1>Plate Detection Debug</h1>
+<p class="subtitle">
+  Tests the two Canny strategies (grayscale → enhanced S-channel) used in production.
+  Upload a photo and set your plate dimensions to inspect each step.
+</p>
 
 <div id="drop-zone">
   <p>Drop an image here or <strong>click to browse</strong></p>
@@ -54,12 +57,26 @@
   <input type="file" id="file-input" accept="image/*">
 </div>
 
+<div style="display:flex;gap:12px;margin-top:14px;align-items:flex-end;flex-wrap:wrap;">
+  <label style="display:flex;flex-direction:column;gap:4px;font-size:.82rem;color:#94a3b8;">
+    Width (mm)
+    <input id="plate-w" type="number" min="1" max="1000" value="256"
+           style="background:#1e293b;border:1px solid #334155;border-radius:6px;
+                  padding:6px 10px;color:#e2e8f0;font-size:.9rem;width:110px;">
+  </label>
+  <label style="display:flex;flex-direction:column;gap:4px;font-size:.82rem;color:#94a3b8;">
+    Height (mm)
+    <input id="plate-h" type="number" min="1" max="1000" value="256"
+           style="background:#1e293b;border:1px solid #334155;border-radius:6px;
+                  padding:6px 10px;color:#e2e8f0;font-size:.9rem;width:110px;">
+  </label>
+</div>
+
 <button id="run-btn" disabled>Run Detection</button>
 <div id="status"></div>
 <div id="steps"></div>
 
 <script>
-  const PLATE_W = 256, PLATE_H = 256;
   let selectedFile = null;
 
   const dropZone  = document.getElementById('drop-zone');
@@ -123,10 +140,12 @@
     const compressed = await compressImage(selectedFile);
     runBtn.textContent = 'Running…';
 
+    const plateW = parseFloat(document.getElementById('plate-w').value) || 256;
+    const plateH = parseFloat(document.getElementById('plate-h').value) || 256;
     const fd = new FormData();
     fd.append('image', compressed, 'image.jpg');
-    fd.append('plate_width_mm',  PLATE_W);
-    fd.append('plate_height_mm', PLATE_H);
+    fd.append('plate_width_mm',  plateW);
+    fd.append('plate_height_mm', plateH);
 
     try {
       const t0  = Date.now();

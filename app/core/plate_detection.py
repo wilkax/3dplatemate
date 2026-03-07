@@ -1,15 +1,14 @@
 """
 OpenCV-based build plate corner detection.
 
-Strategy:
-  1. Sample the dominant colour from the image centre — assuming the build plate
-     occupies the middle of the frame, that patch IS the plate surface.
-  2. Build a colour-distance mask in LAB space: pixels within N ΔE units of the
-     sampled plate colour are marked as foreground. Tried at several thresholds.
-  3. Extract every quadrilateral candidate from the mask contours and score each
-     one by how close its centroid is to the image centre.  The most-centred
-     valid quad wins — not just the first one that passes shape checks.
-  4. Fallback: Otsu thresholding (normal then inverted), same centroid scoring.
+Detection order (first success wins):
+  1. Canny on grayscale — fast, works well on high-contrast plates.
+  2. Canny on enhanced S-channel — fallback for low-contrast plates such as the
+     Bambu Cool Plate SuperTack.  Saturation is boosted ×3 and lightness is
+     compressed, making even nearly-gray plates stand out against the background.
+
+Debug mode additionally tries Hough lines, colour-distance masking (LAB / A+B),
+HSV histogram backprojection, and Otsu thresholding.
 
 Validation applied to every candidate:
   - Must be convex
@@ -457,8 +456,16 @@ def detect_plate_corners(
 
     gray = cv2.cvtColor(work, cv2.COLOR_BGR2GRAY)
 
+    # Strategy 1: Canny on grayscale
     candidates = _canny_candidates(gray, work_w, work_h, min_area, expected_ratio)
     quad = candidates[0][0] if candidates else None
+
+    # Strategy 2: Canny on enhanced S-channel (fallback for low-contrast plates
+    # such as the Bambu Cool Plate SuperTack where grayscale edges are too faint)
+    if quad is None:
+        enhanced_sat = cv2.cvtColor(_enhance_chromatic(work), cv2.COLOR_BGR2HLS)[:, :, 2]
+        candidates = _canny_candidates(enhanced_sat, work_w, work_h, min_area, expected_ratio)
+        quad = candidates[0][0] if candidates else None
 
     if quad is None:
         raise ValueError(
@@ -591,7 +598,11 @@ def detect_plate_corners_debug(
     plate_height_mm: float,
 ) -> dict:
     """
-    Run the full corner detection pipeline and return annotated step images.
+    Run the two-strategy corner detection pipeline and return annotated step images.
+
+    Strategies (matching the production detect_plate_corners function):
+      A — Canny on original grayscale
+      B — Canny on enhanced S-channel (fallback)
 
     Returns
     -------
@@ -609,40 +620,26 @@ def detect_plate_corners_debug(
         return {"steps": [], "corners": None, "error": "Could not decode image."}
 
     orig_h, orig_w = img.shape[:2]
-    scale   = min(_WORK_MAX_PX / orig_w, _WORK_MAX_PX / orig_h, 1.0)
-    work    = cv2.resize(img, (int(orig_w * scale), int(orig_h * scale)))
+    scale    = min(_WORK_MAX_PX / orig_w, _WORK_MAX_PX / orig_h, 1.0)
+    work     = cv2.resize(img, (int(orig_w * scale), int(orig_h * scale)))
     work_h, work_w = work.shape[:2]
     min_area = work_w * work_h * _MIN_AREA_RATIO
     expected_ratio = max(plate_width_mm, plate_height_mm) / min(plate_width_mm, plate_height_mm)
 
-    img_lab    = cv2.cvtColor(work, cv2.COLOR_BGR2LAB).astype(np.float32)
-    img_hsv    = cv2.cvtColor(work, cv2.COLOR_BGR2HSV)
-    gray       = cv2.cvtColor(work, cv2.COLOR_BGR2GRAY)
-    blurred    = cv2.GaussianBlur(gray, (7, 7), 0)
-    plate_color = _sample_plate_color(img_lab)
+    gray         = cv2.cvtColor(work, cv2.COLOR_BGR2GRAY)
+    enhanced     = _enhance_chromatic(work)
+    enhanced_hls = cv2.cvtColor(enhanced, cv2.COLOR_BGR2HLS)
+    enhanced_sat = enhanced_hls[:, :, 2]   # S channel: plate=dark, BG=bright
 
-    enhanced      = _enhance_chromatic(work)
-    enhanced_hls  = cv2.cvtColor(enhanced, cv2.COLOR_BGR2HLS)
-    enhanced_sat  = enhanced_hls[:, :, 2]   # S channel: plate=dark, BG=bright
-    enhanced_hsv  = cv2.cvtColor(enhanced, cv2.COLOR_BGR2HSV)
-
-    ph = max(1, int(work_h * _CENTER_PATCH_F))
-    pw = max(1, int(work_w * _CENTER_PATCH_F))
-    cy0, cx0            = work_h // 2, work_w // 2
-    center_hsv          = img_hsv[cy0 - ph // 2 : cy0 + ph // 2, cx0 - pw // 2 : cx0 + pw // 2]
-    center_enhanced_hsv = enhanced_hsv[cy0 - ph // 2 : cy0 + ph // 2, cx0 - pw // 2 : cx0 + pw // 2]
-
-    # ── Step 1: original + sampled region ────────────────────────────────────
+    # ── Step 1: original image ────────────────────────────────────────────────
     vis1 = work.copy()
-    cv2.rectangle(vis1, (cx0 - pw//2, cy0 - ph//2), (cx0 + pw//2, cy0 + ph//2), (0, 230, 230), 2)
     _draw_crosshair(vis1, work_w // 2, work_h // 2)
     steps.append({"title": "Step 1 — Input image",
                   "image": _encode_b64(vis1),
-                  "description": "Cyan box = centre patch sampled for plate colour. Red crosshair = image centre."})
+                  "description": "Red crosshair = image centre."})
 
     # ── Step 2: chromatic-enhanced image ─────────────────────────────────────
     vis2 = enhanced.copy()
-    cv2.rectangle(vis2, (cx0 - pw//2, cy0 - ph//2), (cx0 + pw//2, cy0 + ph//2), (0, 230, 230), 2)
     _draw_crosshair(vis2, work_w // 2, work_h // 2)
     steps.append({"title": "Step 2 — Chromatic enhancement (contrast −100, sat ×3)",
                   "image": _encode_b64(vis2),
@@ -662,90 +659,22 @@ def detect_plate_corners_debug(
                       "Canny on this channel finds the plate boundary as the sharpest edge."
                   )})
 
-    # ── Step 4: sampled colour swatch ────────────────────────────────────────
-    lab_px = np.array([[[round(plate_color[0]), round(plate_color[1]), round(plate_color[2])]]],
-                      dtype=np.uint8)
-    bgr = cv2.cvtColor(lab_px, cv2.COLOR_LAB2BGR)[0][0]
-    r, g, b = int(bgr[2]), int(bgr[1]), int(bgr[0])
-    swatch = np.full((120, 360, 3), bgr.tolist(), dtype=np.uint8)
-    tc = (0, 0, 0) if r + g + b > 400 else (255, 255, 255)
-    cv2.putText(swatch, f"RGB  ({r}, {g}, {b})", (12, 50), cv2.FONT_HERSHEY_SIMPLEX, 0.8, tc, 2)
-    cv2.putText(swatch, f"LAB  ({plate_color[0]:.0f}, {plate_color[1]:.0f}, {plate_color[2]:.0f})",
-                (12, 90), cv2.FONT_HERSHEY_SIMPLEX, 0.8, tc, 2)
-    steps.append({"title": "Step 4 — Sampled plate colour",
-                  "image": _encode_b64(swatch),
-                  "description": "Dominant colour of the centre patch — ΔE distances are measured from this."})
-
     # Mutable box so helpers can record the first winner found
     fq = [None]   # fq[0] = winning quad once found, else None
 
-    # ── Strategy A: Canny on enhanced saturation channel ─────────────────────
-    canny_esat = _canny_candidates(enhanced_sat, work_w, work_h, min_area, expected_ratio)
-    blurred_esat = cv2.GaussianBlur(enhanced_sat, (5, 5), 0)
-    edge_esat = cv2.Canny(blurred_esat, 30, 100)
-    steps.append(_make_edge_step(
-        "A — Canny on enhanced-S channel", canny_esat, edge_esat, work, work_w, work_h, fq,
-    ))
-
-    # ── Strategy B: Hough on enhanced saturation channel ─────────────────────
-    hough_esat = _hough_candidates(enhanced_sat, work_w, work_h, min_area, expected_ratio)
-    steps.append(_make_edge_step(
-        "B — Hough lines on enhanced-S channel", hough_esat, edge_esat, work, work_w, work_h, fq,
-    ))
-
-    # ── Strategy C: Canny on original gray ───────────────────────────────────
+    # ── Strategy A: Canny on original grayscale ───────────────────────────────
     canny_gray = _canny_candidates(gray, work_w, work_h, min_area, expected_ratio)
     edge_gray  = cv2.Canny(cv2.GaussianBlur(gray, (5, 5), 0), 30, 100)
     steps.append(_make_edge_step(
-        "C — Canny on original grayscale", canny_gray, edge_gray, work, work_w, work_h, fq,
+        "A — Canny on original grayscale", canny_gray, edge_gray, work, work_w, work_h, fq,
     ))
 
-    # ── Strategy D: Hough on original gray ───────────────────────────────────
-    hough_gray = _hough_candidates(gray, work_w, work_h, min_area, expected_ratio)
+    # ── Strategy B: Canny on enhanced S-channel (fallback) ───────────────────
+    canny_esat   = _canny_candidates(enhanced_sat, work_w, work_h, min_area, expected_ratio)
+    edge_esat    = cv2.Canny(cv2.GaussianBlur(enhanced_sat, (5, 5), 0), 30, 100)
     steps.append(_make_edge_step(
-        "D — Hough lines on original grayscale", hough_gray, edge_gray, work, work_w, work_h, fq,
+        "B — Canny on enhanced S-channel", canny_esat, edge_esat, work, work_w, work_h, fq,
     ))
-
-    # ── Strategy E: Backprojection on ENHANCED image ──────────────────────────
-    for t in _BACKPROJ_THRESHOLDS:
-        steps.append(_make_mask_step(
-            f"E — Enhanced backprojection H+S  threshold={t}",
-            _hsv_backprojection_mask(enhanced_hsv, center_enhanced_hsv, t),
-            enhanced, work_w, work_h, min_area, expected_ratio, fq,
-        ))
-
-    # ── Strategy F: HSV histogram backprojection on original ─────────────────
-    for t in _BACKPROJ_THRESHOLDS:
-        steps.append(_make_mask_step(
-            f"F — Backprojection H+S  threshold={t}",
-            _hsv_backprojection_mask(img_hsv, center_hsv, t),
-            work, work_w, work_h, min_area, expected_ratio, fq,
-        ))
-
-    # ── Strategy G: Chrominance A+B (lighting-invariant) ─────────────────────
-    for t in _AB_THRESHOLDS:
-        steps.append(_make_mask_step(
-            f"G — Chrominance A+B  ΔE ≤ {t}",
-            _ab_distance_mask(img_lab, plate_color, t),
-            work, work_w, work_h, min_area, expected_ratio, fq,
-        ))
-
-    # ── Strategy H: Full LAB ΔE ───────────────────────────────────────────────
-    for t in _COLOR_THRESHOLDS:
-        steps.append(_make_mask_step(
-            f"H — Full LAB ΔE ≤ {t}",
-            _color_distance_mask(img_lab, plate_color, t),
-            work, work_w, work_h, min_area, expected_ratio, fq,
-        ))
-
-    # ── Strategy I: Otsu fallback ─────────────────────────────────────────────
-    for invert in (False, True):
-        label = "inverted" if invert else "normal"
-        steps.append(_make_mask_step(
-            f"I — Otsu ({label})",
-            _otsu_mask(blurred, invert=invert),
-            work, work_w, work_h, min_area, expected_ratio, fq,
-        ))
 
     final_quad = fq[0]
 
