@@ -584,6 +584,7 @@
 
     </div>
   </div>
+</div>
 
 <!-- ── Zoom lens overlay (touch magnifier for corner editor) ── -->
 <div id="zoomLens"><canvas id="zoomCanvas"></canvas></div>
@@ -877,7 +878,12 @@ function nearestCorner(x, y) {
   return CORNER_ORDER.find(k => Math.hypot(x - corners[k][0], y - corners[k][1]) < hitR) ?? null;
 }
 
-cornerCanvas.addEventListener('mousedown',  e => { draggingCorner = nearestCorner(...canvasPoint(e)); });
+cornerCanvas.addEventListener('mousedown',  e => {
+  draggingCorner = nearestCorner(...canvasPoint(e));
+  if (draggingCorner) {
+    showZoomLens(e.clientX, e.clientY, corners[draggingCorner][0], corners[draggingCorner][1]);
+  }
+});
 cornerCanvas.addEventListener('mousemove',  e => {
   if (!draggingCorner) return;
   const [x, y] = canvasPoint(e);
@@ -886,9 +892,10 @@ cornerCanvas.addEventListener('mousemove',  e => {
     Math.max(0, Math.min(cornerCanvas.height, y)),
   ];
   drawCornerOverlay();
+  showZoomLens(e.clientX, e.clientY, corners[draggingCorner][0], corners[draggingCorner][1]);
 });
-cornerCanvas.addEventListener('mouseup',    () => { draggingCorner = null; });
-cornerCanvas.addEventListener('mouseleave', () => { draggingCorner = null; });
+cornerCanvas.addEventListener('mouseup',    () => { draggingCorner = null; hideZoomLens(); });
+cornerCanvas.addEventListener('mouseleave', () => { draggingCorner = null; hideZoomLens(); });
 
 cornerCanvas.addEventListener('touchstart', e => {
   e.preventDefault();
