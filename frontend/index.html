@@ -67,6 +67,29 @@
       letter-spacing: .01em;
     }
 
+    /* ── Hero quote ── */
+    .site-quote {
+      width: 100%; max-width: 520px;
+      margin: 0 auto 2rem;
+      padding: 1rem 1.25rem;
+      text-align: center;
+      color: var(--text-muted);
+      font-size: .85rem;
+      font-style: italic;
+      line-height: 1.6;
+    }
+    .site-quote cite {
+      display: block;
+      margin-top: .4rem;
+      font-style: normal;
+      font-size: .78rem;
+      font-weight: 600;
+      letter-spacing: .04em;
+      text-transform: uppercase;
+      color: var(--accent);
+      opacity: .75;
+    }
+
     /* ── Cards ── */
     .card {
       background: var(--surface);
@@ -125,6 +148,57 @@
     .row { display: flex; gap: .75rem; }
     .row > div { flex: 1; }
     #manual-section { display: none; }
+
+    /* ── How-to guide ── */
+    .howto {
+      width: 100%; max-width: 520px;
+      margin-top: 1rem;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      box-shadow: 0 4px 24px rgba(0,0,0,.35);
+      padding: 1.5rem 1.75rem;
+      display: flex;
+      flex-direction: column;
+      gap: 1.1rem;
+    }
+    .howto-title {
+      font-size: .7rem;
+      font-weight: 700;
+      letter-spacing: .1em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      margin: 0;
+    }
+    .howto-steps { list-style: none; display: flex; flex-direction: column; gap: .85rem; }
+    .howto-step  { display: flex; gap: .85rem; align-items: flex-start; }
+    .howto-num   {
+      flex-shrink: 0;
+      width: 24px; height: 24px;
+      border-radius: 50%;
+      background: var(--accent);
+      color: #07111e;
+      font-size: .72rem;
+      font-weight: 800;
+      display: flex; align-items: center; justify-content: center;
+      margin-top: .05rem;
+    }
+    .howto-step-body { font-size: .84rem; line-height: 1.55; color: var(--text-muted); }
+    .howto-step-body strong { color: var(--text); font-weight: 600; }
+
+    .howto-divider { border: none; border-top: 1px solid var(--border); margin: 0; }
+
+    .howto-tips { display: flex; flex-direction: column; gap: .55rem; }
+    .howto-tips-title {
+      font-size: .7rem;
+      font-weight: 700;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+    }
+    .howto-tip {
+      font-size: .82rem; line-height: 1.55; color: var(--text-muted);
+    }
 
     /* ── Corner editor ── */
     #stepCorners { display: none; width: 100%; max-width: 900px; }
@@ -354,8 +428,13 @@
 <body>
   <header class="site-header">
     <img class="logo" src="/logo.png" alt="3DPLATEMATE.COM" />
-    <p class="subtitle">Photograph your plate → paint dirty spots → get a clean 3MF</p>
+    <p class="subtitle">Photograph your plate → mark residue → get a cleanser 3MF</p>
   </header>
+
+  <blockquote id="siteQuote" class="site-quote">
+    "The best way to remove plastic residue from a build plate is… MORE PLASTIC!"
+    <cite>Socrates</cite>
+  </blockquote>
 
   <!-- ── Step 1: Upload ── -->
   <div id="step1" style="display:flex;flex-direction:column;align-items:center;gap:0">
@@ -404,6 +483,50 @@
         <img src="https://cdn.buymeacoffee.com/buttons/bmc-new-btn-logo.svg" alt="" />
         Buy me a coffee
       </a>
+    </div>
+
+    <!-- ── How to Use ── -->
+    <div class="howto">
+      <p class="howto-title">How to use</p>
+      <ol class="howto-steps">
+        <li class="howto-step">
+          <span class="howto-num">1</span>
+          <span class="howto-step-body"><strong>Photograph your plate</strong> — lay it flat, shoot from directly above in good light so all four corners are visible.</span>
+        </li>
+        <li class="howto-step">
+          <span class="howto-num">2</span>
+          <span class="howto-step-body"><strong>Select your plate size</strong> and upload the photo. The app will auto-detect the plate boundary.</span>
+        </li>
+        <li class="howto-step">
+          <span class="howto-num">3</span>
+          <span class="howto-step-body"><strong>Adjust the corners</strong> — drag the green handles until they sit exactly on the plate edges, then confirm.</span>
+        </li>
+        <li class="howto-step">
+          <span class="howto-num">4</span>
+          <span class="howto-step-body"><strong>Mark the dirty spots</strong> — use the brush or polygon tool to mark any plastic residue. A 2mm margin is added automatically.</span>
+        </li>
+        <li class="howto-step">
+          <span class="howto-num">5</span>
+          <span class="howto-step-body"><strong>Generate &amp; download the 3MF</strong> — open the file in your slicer. Each marked area appears as a separate object. Remove the reference frame before printing.</span>
+        </li>
+        <li class="howto-step">
+          <span class="howto-num">6</span>
+          <span class="howto-step-body"><strong>Print directly on the dirty plate</strong> — the cleanser objects stick to the residue as they print.</span>
+        </li>
+        <li class="howto-step">
+          <span class="howto-num">7</span>
+          <span class="howto-step-body"><strong>Let it cool and remove cleanser objects</strong> — the residue is removed with the cleanser objects. Repeat if necessary</span>
+        </li>
+      </ol>
+
+      <hr class="howto-divider" />
+
+      <div class="howto-tips">
+        <p class="howto-tips-title">Slicer tips</p>
+        <p class="howto-tip">Use a <strong>0.2 mm layer height</strong> - the cleanser objects are 0.6mm high -> three layers.</p>
+        <p class="howto-tip">Raise <strong>bed &amp; nozzle temperature by ~10 °C</strong> for better adhesion between plastic residue and cleanser object.</p>
+        <p class="howto-tip">The 3MF includes a thin <strong>reference frame</strong> that positions the cleanser objects correctly — you can remove it in the slicer once satisfied.</p>
+      </div>
     </div>
   </div>
 
@@ -639,6 +762,7 @@ document.getElementById('prepareForm').addEventListener('submit', async e => {
       cornerCanvas.height = cornerImg.naturalHeight;
       drawCornerOverlay();
       step1.style.display     = 'none';
+      document.getElementById('siteQuote').style.display = 'none';
       stepCorners.style.display = 'block';
     };
     cornerImg.src = URL.createObjectURL(compressedBlob);
@@ -821,6 +945,7 @@ confirmCornersBtn.addEventListener('click', async () => {
 document.getElementById('reuploadBtn').addEventListener('click', () => {
   stepCorners.style.display = 'none';
   step1.style.display = 'block';
+  document.getElementById('siteQuote').style.display = '';
   hideStatus(status1);
   hideStatus(statusCorners);
 });
@@ -980,6 +1105,7 @@ clearBtn.addEventListener('click', () => {
 backBtn.addEventListener('click', () => {
   step2.style.display = 'none';
   step1.style.display = '';
+  document.getElementById('siteQuote').style.display = '';
   hideStatus(status1);
   document.getElementById('coffeePrompt').style.display = 'none';
 });
