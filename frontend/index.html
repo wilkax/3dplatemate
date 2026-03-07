@@ -639,7 +639,14 @@ const statusCorners    = document.getElementById('statusCorners');
 const confirmCornersBtn = document.getElementById('confirmCornersBtn');
 const CORNER_ORDER     = ['top_left', 'top_right', 'bottom_right', 'bottom_left'];
 const CORNER_LABELS    = { top_left: 'TL', top_right: 'TR', bottom_right: 'BR', bottom_left: 'BL' };
-const HANDLE_R         = 14;   // handle radius in canvas pixels
+const HANDLE_R           = 14;   // handle radius in canvas pixels
+const HANDLE_HIT_CSS_PX  = 36;   // touch hit zone in display pixels (scale-independent)
+
+// Returns how many canvas pixels equal 1 display (CSS) pixel for the corner canvas.
+function cornerPxRatio() {
+  const rect = cornerCanvas.getBoundingClientRect();
+  return rect.width > 0 ? cornerCanvas.width / rect.width : 1;
+}
 
 // ─── Zoom lens ────────────────────────────────────────────────────────────────
 const zoomLens   = document.getElementById('zoomLens');
@@ -866,7 +873,8 @@ function canvasPoint(e) {
 }
 
 function nearestCorner(x, y) {
-  return CORNER_ORDER.find(k => Math.hypot(x - corners[k][0], y - corners[k][1]) < HANDLE_R * 2) ?? null;
+  const hitR = HANDLE_HIT_CSS_PX * cornerPxRatio();
+  return CORNER_ORDER.find(k => Math.hypot(x - corners[k][0], y - corners[k][1]) < hitR) ?? null;
 }
 
 cornerCanvas.addEventListener('mousedown',  e => { draggingCorner = nearestCorner(...canvasPoint(e)); });
@@ -1144,11 +1152,16 @@ generateBtn.addEventListener('click', async () => {
   try {
     const resp = await fetch('/api/v1/generate-stl', { method: 'POST', body: fd });
     if (resp.ok) {
-      const stlBlob = await resp.blob();
-      const url = URL.createObjectURL(stlBlob);
+      const bytes = await resp.arrayBuffer();
+      // Use application/octet-stream so iOS treats it as a generic file download
+      // (model/3mf is unrecognised by iOS and causes an "unknown" / 0-byte result).
+      const url = URL.createObjectURL(new Blob([bytes], { type: 'application/octet-stream' }));
       const a = document.createElement('a');
-      a.href = url; a.download = '3Dplatemate.com.3mf'; a.click();
-      URL.revokeObjectURL(url);
+      a.href = url; a.download = '3Dplatemate.com.3mf';
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      // Revoke after a delay — iOS fetches the blob URL asynchronously, so revoking
+      // synchronously results in an empty / 22-byte file on the device.
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
       showStatus(status2, 'success', '✓ 3MF downloaded! Load it into your slicer.');
       document.getElementById('coffeePrompt').style.display = 'flex';
     } else {
