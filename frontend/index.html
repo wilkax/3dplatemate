@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>3DPLATEMATE.COM</title>
+  <link rel="icon" href="/favicon.ico" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
@@ -66,6 +67,16 @@
       font-size: .9rem;
       letter-spacing: .01em;
     }
+    .details-link {
+      margin-top: .9rem;
+      font-size: .8rem;
+      font-weight: 600;
+      color: var(--accent);
+      text-decoration: none;
+      opacity: .85;
+      transition: opacity .18s;
+    }
+    .details-link:hover { opacity: 1; }
 
     /* ── Hero quote ── */
     .site-quote {
@@ -429,6 +440,7 @@
   <header class="site-header">
     <img class="logo" src="/logo.png" alt="3DPLATEMATE.COM" />
     <p class="subtitle">Photograph your plate → mark residue → get a cleanser 3MF</p>
+    <a class="details-link" href="/details">📖 How it works — step-by-step guide with photos</a>
   </header>
 
   <blockquote id="siteQuote" class="site-quote">
@@ -525,7 +537,7 @@
         <p class="howto-tips-title">Slicer tips</p>
         <p class="howto-tip">Use a <strong>0.2 mm layer height</strong> - the cleanser objects are 0.6mm high -> three layers.</p>
         <p class="howto-tip">Raise <strong>bed &amp; nozzle temperature by ~10 °C</strong> for better adhesion between plastic residue and cleanser object.</p>
-        <p class="howto-tip">The 3MF includes a thin <strong>reference frame</strong> that positions the cleanser objects correctly — you can remove it in the slicer once satisfied.</p>
+        <p class="howto-tip">The 3MF includes a thin <strong>reference frame</strong> that positions the cleanser objects correctly — remove it in the slicer before printing.</p>
       </div>
     </div>
   </div>
@@ -624,7 +636,7 @@ const guideCanvas      = document.getElementById('guideCanvas');
 const bgCtx            = bgCanvas.getContext('2d');
 const paintCtx         = paintCanvas.getContext('2d');
 const guideCtx         = guideCanvas.getContext('2d');
-const BRUSH_SIZE       = 20;
+const BRUSH_SIZE       = 16;
 const brushBtn         = document.getElementById('brushBtn');
 const polygonBtn       = document.getElementById('polygonBtn');
 const eraserBtn        = document.getElementById('eraserBtn');

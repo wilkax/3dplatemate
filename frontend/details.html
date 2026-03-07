@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>How It Works — 3DPLATEMATE.COM</title>
+  <link rel="icon" href="/favicon.ico" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg:          #07111e;
+      --surface:     #0f2035;
+      --surface-2:   #162d47;
+      --border:      #1e3a56;
+      --border-2:    #2b4f70;
+      --accent:      #4ac4d0;
+      --accent-dark: #33a0ab;
+      --accent-glow: rgba(74,196,208,.18);
+      --text:        #e2eaf4;
+      --text-muted:  #7a9bba;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Inter', system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 0 1rem 3rem;
+    }
+
+    .site-header {
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 2.5rem 1rem 2rem;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 2.5rem;
+      background: linear-gradient(180deg, rgba(74,196,208,.06) 0%, transparent 100%);
+    }
+    .site-header img.logo { height: 56px; width: auto; display: block; }
+    p.subtitle { color: var(--text-muted); margin-top: .75rem; font-size: .9rem; letter-spacing: .01em; }
+
+    .page-title {
+      font-size: 1.5rem;
+      font-weight: 700;
+      color: var(--text);
+      margin-bottom: .35rem;
+      text-align: center;
+    }
+    .page-sub {
+      font-size: .9rem;
+      color: var(--text-muted);
+      text-align: center;
+      margin-bottom: 2.5rem;
+    }
+
+    .steps { display: flex; flex-direction: column; gap: 2rem; width: 100%; max-width: 640px; }
+
+    .step-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      box-shadow: 0 4px 24px rgba(0,0,0,.35);
+      overflow: hidden;
+    }
+    .step-card img {
+      width: 100%;
+      display: block;
+      object-fit: cover;
+      max-height: 340px;
+      border-bottom: 1px solid var(--border);
+    }
+    .step-body { padding: 1.5rem 1.75rem; }
+    .step-label {
+      display: flex;
+      align-items: center;
+      gap: .75rem;
+      margin-bottom: .75rem;
+    }
+    .step-num {
+      flex-shrink: 0;
+      width: 32px; height: 32px;
+      border-radius: 50%;
+      background: var(--accent);
+      color: #07111e;
+      font-size: .85rem;
+      font-weight: 800;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .step-title { font-size: 1.05rem; font-weight: 700; color: var(--text); }
+    .step-desc { font-size: .88rem; line-height: 1.65; color: var(--text-muted); }
+
+    .back-link {
+      display: inline-flex;
+      align-items: center;
+      gap: .4rem;
+      margin-bottom: 1.75rem;
+      font-size: .85rem;
+      font-weight: 600;
+      color: var(--accent);
+      text-decoration: none;
+      transition: opacity .18s;
+    }
+    .back-link:hover { opacity: .75; }
+
+    .site-footer {
+      width: 100%;
+      margin-top: 3rem;
+      padding: 1.25rem 1rem;
+      border-top: 1px solid var(--border);
+      text-align: center;
+      font-size: .75rem;
+      color: var(--text-muted);
+      line-height: 1.7;
+    }
+  </style>
+</head>
+<body>
+  <header class="site-header">
+    <a href="/"><img class="logo" src="/logo.png" alt="3DPLATEMATE.COM" /></a>
+    <p class="subtitle">Photograph your plate → mark residue → get a cleanser 3MF</p>
+  </header>
+
+  <a class="back-link" href="/">← Back to app</a>
+
+  <h1 class="page-title">How It Works</h1>
+  <p class="page-sub">Four simple steps to a clean build plate.</p>
+
+  <div class="steps">
+
+    <div class="step-card">
+      <img src="/details-step1.jpg" alt="Step 1 — Take a picture of the build plate" />
+      <div class="step-body">
+        <div class="step-label">
+          <span class="step-num">1</span>
+          <span class="step-title">Take a picture of the build plate</span>
+        </div>
+        <p class="step-desc">
+          Place your build plate on a flat, well-lit surface and shoot straight down
+          so all four corners are clearly visible. A phone camera works perfectly —
+          just make sure the plate fills most of the frame.
+        </p>
+      </div>
+    </div>
+
+    <div class="step-card">
+      <img src="/details-step2.jpg" alt="Step 2 — Mark residue with the brush or the polygon" />
+      <div class="step-body">
+        <div class="step-label">
+          <span class="step-num">2</span>
+          <span class="step-title">Mark residue with the brush or the polygon</span>
+        </div>
+        <p class="step-desc">
+          Upload the photo and confirm the four plate corners. Then switch to the
+          painting step: use the <strong>brush</strong> to paint freehand over dirty
+          spots, or the <strong>polygon</strong> tool to draw precise outlines around
+          the residue. A 2 mm safety margin is added automatically.
+        </p>
+      </div>
+    </div>
+
+    <div class="step-card">
+      <img src="/details-step3.jpg" alt="Step 3 — Print the 3MF file" />
+      <div class="step-body">
+        <div class="step-label">
+          <span class="step-num">3</span>
+          <span class="step-title">Print the 3MF file</span>
+        </div>
+        <p class="step-desc">
+          Click <strong>Generate 3MF</strong> and open the downloaded file in your
+          slicer. Remove the reference frame object, then print directly onto the
+          dirty plate. Use a <strong>0.2 mm layer height</strong> and raise bed &amp;
+          nozzle temperature by ~10 °C for better adhesion to the residue.
+        </p>
+      </div>
+    </div>
+
+    <div class="step-card">
+      <img src="/details-step4.jpg" alt="Step 4 — Remove print after cooling" />
+      <div class="step-body">
+        <div class="step-label">
+          <span class="step-num">4</span>
+          <span class="step-title">Remove print after cooling — repeat if necessary</span>
+        </div>
+        <p class="step-desc">
+          Let the plate cool completely. The cleanser objects bond to the residue as
+          they print, so peeling them off takes the residue with them. If any spots
+          remain, simply repeat the process.
+        </p>
+      </div>
+    </div>
+
+  </div>
+
+  <footer class="site-footer">
+    AI.Caramba - Axel Wilkening &nbsp;&bull;&nbsp; Koenig-Heinrich-Weg 3 &nbsp;&bull;&nbsp; DE &ndash; 22459 Hamburg &nbsp;&bull;&nbsp;
+    Contact: axel (at) getpost.ai &nbsp;&bull;&nbsp; &copy; 2026
+  </footer>
+</body>
+</html>
+

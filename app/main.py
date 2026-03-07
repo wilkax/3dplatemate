@@ -16,6 +16,7 @@ from fastapi.staticfiles import StaticFiles
 from app.api.routes import debug_detection, generate_stl, prepare, printers
 
 _FRONTEND_DIR = Path(__file__).parent.parent / "frontend"
+_ROOT_DIR = Path(__file__).parent.parent
 
 logging.basicConfig(
     level=logging.INFO,
@@ -53,6 +54,36 @@ def health():
 @app.get("/", include_in_schema=False)
 def frontend():
     return FileResponse(_FRONTEND_DIR / "index.html")
+
+
+@app.get("/details", include_in_schema=False)
+def details():
+    return FileResponse(_FRONTEND_DIR / "details.html")
+
+
+@app.get("/favicon.ico", include_in_schema=False)
+def favicon():
+    return FileResponse(_ROOT_DIR / "favicon.ico")
+
+
+@app.get("/details-step1.jpg", include_in_schema=False)
+def details_step1():
+    return FileResponse(_ROOT_DIR / "details-step1.jpg", media_type="image/jpeg")
+
+
+@app.get("/details-step2.jpg", include_in_schema=False)
+def details_step2():
+    return FileResponse(_ROOT_DIR / "details-step2.jpg", media_type="image/jpeg")
+
+
+@app.get("/details-step3.jpg", include_in_schema=False)
+def details_step3():
+    return FileResponse(_ROOT_DIR / "details-step3.jpg", media_type="image/jpeg")
+
+
+@app.get("/details-step4.jpg", include_in_schema=False)
+def details_step4():
+    return FileResponse(_ROOT_DIR / "details-step4.jpg", media_type="image/jpeg")
 
 
 app.mount("/", StaticFiles(directory=_FRONTEND_DIR), name="frontend")
