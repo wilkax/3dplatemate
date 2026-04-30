@@ -1,10 +1,11 @@
 fastapi
 uvicorn[standard]
 python-multipart
-opencv-python-headless
+opencv-contrib-python-headless
 numpy
 shapely
 trimesh
+manifold3d
 networkx
 lxml
 mapbox-earcut

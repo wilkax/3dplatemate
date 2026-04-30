@@ -13,7 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from app.api.routes import debug_detection, generate_stl, prepare, printers
+from app.api.routes import debug_detection, fill_hole, generate_stl, prepare, printers
 
 _FRONTEND_DIR = Path(__file__).parent.parent / "frontend"
 _ROOT_DIR = Path(__file__).parent.parent
@@ -44,6 +44,7 @@ app.include_router(prepare.router,          prefix="/api/v1", tags=["Prepare"])
 app.include_router(generate_stl.router,     prefix="/api/v1", tags=["Generate 3MF"])
 app.include_router(printers.router,         prefix="/api/v1", tags=["Printers"])
 app.include_router(debug_detection.router,  prefix="/api/v1", tags=["Debug"])
+app.include_router(fill_hole.router,        prefix="/api/v1", tags=["Fill the hole"])
 
 
 @app.get("/health", tags=["Health"])
@@ -59,6 +60,11 @@ def frontend():
 @app.get("/details", include_in_schema=False)
 def details():
     return FileResponse(_FRONTEND_DIR / "details.html")
+
+
+@app.get("/fill-hole", include_in_schema=False)
+def fill_hole_page():
+    return FileResponse(_FRONTEND_DIR / "fill-hole.html")
 
 
 @app.get("/favicon.ico", include_in_schema=False)
