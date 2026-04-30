@@ -12,8 +12,11 @@ homography from image pixels to mm coordinates, which we use to:
 
 from __future__ import annotations
 
+import io
+
 import cv2
 import numpy as np
+import trimesh
 
 ARUCO_DICT_ID    = cv2.aruco.DICT_4X4_50
 ARUCO_MARKER_ID  = 0          # we always look for marker id 0
@@ -130,3 +133,90 @@ def detect_and_warp(
         "marker_corners_px": dst_px.tolist(),
         "marker_size_mm":    marker_size_mm,
     }
+
+
+
+def generate_marker_3mf(
+    size_mm: float = 50.0,
+    base_height_mm: float = 1.2,
+    raise_height_mm: float = 0.8,
+    quiet_zone_cells: int = 1,
+) -> bytes:
+    """Generate a 3D-printable ArUco marker as a 3MF file.
+
+    Geometry
+    --------
+    The ArUco marker (DICT_4X4_50, id 0) is a 6×6 cell grid
+    (4×4 data + 1-cell black border on each side).  An additional white
+    quiet zone of ``quiet_zone_cells`` cells is added around the outside
+    so the detector always has enough margin.
+
+    Two mesh objects are exported to the scene:
+
+    * **marker_base** — the full white tile (base height).  Print in white
+      or light-coloured filament.
+    * **marker_pattern** — the raised black cells on top (raise height above
+      the base).  Print in black filament after a colour-change at the
+      appropriate layer, or in a dual-extrusion setup.
+
+    For single-colour printing the height difference alone creates enough
+    shadow contrast for reliable detection at typical photo distances.
+
+    Parameters
+    ----------
+    size_mm         : edge length of the active marker area (the 6×6 grid), mm
+    base_height_mm  : thickness of the base tile, mm
+    raise_height_mm : extra height of the black cells above the base, mm
+    quiet_zone_cells: number of extra white border cells outside the 6×6 grid
+    """
+    if size_mm <= 0:
+        raise ValueError("size_mm must be > 0.")
+    if base_height_mm <= 0 or raise_height_mm <= 0:
+        raise ValueError("height values must be > 0.")
+
+    n_marker_cells  = 6                        # 4×4 data + 1-cell black border
+    cell_size       = size_mm / n_marker_cells
+    qz              = quiet_zone_cells * cell_size
+    tile_size       = size_mm + 2.0 * qz      # total tile footprint
+
+    # ── Read the black/white pattern from OpenCV ───────────────────────────────
+    aruco_dict = cv2.aruco.getPredefinedDictionary(ARUCO_DICT_ID)
+    px_per_cell = 16
+    img_size    = n_marker_cells * px_per_cell
+    marker_img  = cv2.aruco.generateImageMarker(
+        aruco_dict, ARUCO_MARKER_ID, img_size,
+    )                                          # grayscale, 0 = black, 255 = white
+
+    # ── Base plate (white background + quiet zone) ─────────────────────────────
+    base = trimesh.creation.box(extents=[tile_size, tile_size, base_height_mm])
+    base.apply_translation([tile_size / 2.0, tile_size / 2.0, base_height_mm / 2.0])
+
+    # ── Raised cells for every dark pixel-block ────────────────────────────────
+    raise_meshes: list[trimesh.Trimesh] = []
+    z_centre = base_height_mm + raise_height_mm / 2.0
+
+    for row in range(n_marker_cells):
+        for col in range(n_marker_cells):
+            sample_px = int((col + 0.5) * px_per_cell)
+            sample_py = int((row + 0.5) * px_per_cell)
+            if marker_img[sample_py, sample_px] < 128:   # black cell
+                # col  → x, with quiet-zone offset
+                x_centre = qz + col * cell_size + cell_size / 2.0
+                # row 0 is image-top; in 3-D we flip Y so row 0 → highest Y
+                y_centre = qz + (n_marker_cells - 1 - row) * cell_size + cell_size / 2.0
+                cell_box = trimesh.creation.box(
+                    extents=[cell_size, cell_size, raise_height_mm],
+                )
+                cell_box.apply_translation([x_centre, y_centre, z_centre])
+                raise_meshes.append(cell_box)
+
+    # ── Assemble scene ─────────────────────────────────────────────────────────
+    scene = trimesh.Scene()
+    scene.add_geometry(base, geom_name="marker_base")
+    if raise_meshes:
+        pattern = trimesh.util.concatenate(raise_meshes)
+        scene.add_geometry(pattern, geom_name="marker_pattern")
+
+    buf = io.BytesIO()
+    scene.export(buf, file_type="3mf")
+    return buf.getvalue()

@@ -3,7 +3,7 @@
 
 Endpoints
 ---------
-GET  /api/v1/fill-hole/marker.png?size_mm=...    Printable ArUco reference.
+GET  /api/v1/fill-hole/marker.3mf?size_mm=...    3D-printable ArUco reference.
 POST /api/v1/fill-hole/prepare                   Detect marker, warp top-down,
                                                   auto-detect hole polygon.
 POST /api/v1/fill-hole/generate                  Convert traced polygon (mask)
@@ -25,7 +25,7 @@ from app.core.aruco_detection import (
     DEFAULT_PX_PER_MM,
     DEFAULT_VIEW_MM,
     detect_and_warp,
-    render_marker_png,
+    generate_marker_3mf,
 )
 from app.core.hole_detection import detect_hole_polygon
 from app.core.plug_gen import generate_plug_3mf
@@ -42,20 +42,31 @@ _MIN_MARKER_MM   = 10.0
 _MAX_MARKER_MM   = 300.0
 
 
-@router.get("/marker.png")
-def get_marker_png(size_mm: float = 50.0):
-    """Render the ArUco reference marker as a printable PNG (300 DPI)."""
+@router.get("/marker.3mf")
+def get_marker_3mf(size_mm: float = 50.0):
+    """Return a 3D-printable ArUco marker as a 3MF file.
+
+    The 3MF contains two objects:
+    - **marker_base**    – flat tile (print in white/light filament)
+    - **marker_pattern** – raised black cells (filament-change to black)
+
+    ``size_mm`` is the edge length of the 6×6 active marker area in mm.
+    """
     if not (_MIN_MARKER_MM <= size_mm <= _MAX_MARKER_MM):
         raise HTTPException(
             status_code=422,
             detail=f"size_mm must be between {_MIN_MARKER_MM} and {_MAX_MARKER_MM}.",
         )
     try:
-        png = render_marker_png(size_mm=size_mm, px_per_mm=300.0 / 25.4)
+        data = generate_marker_3mf(size_mm=size_mm)
     except Exception as exc:
-        logger.exception("Marker rendering failed")
-        raise HTTPException(status_code=500, detail=f"Marker rendering failed: {exc}")
-    return Response(content=png, media_type="image/png")
+        logger.exception("Marker 3MF generation failed")
+        raise HTTPException(status_code=500, detail=f"Marker 3MF generation failed: {exc}")
+    return Response(
+        content=data,
+        media_type="model/3mf",
+        headers={"Content-Disposition": 'attachment; filename="aruco_marker.3mf"'},
+    )
 
 
 @router.post("/prepare")

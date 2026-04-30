@@ -195,9 +195,9 @@
       <hr class="divider" />
       <div class="marker-help">
         <strong style="color:var(--text)">Need the marker?</strong><br>
-        Print at 100% scale and place flat on the same plane as the hole, just next to it.<br>
-        <a id="markerLink" href="/api/v1/fill-hole/marker.png?size_mm=50" target="_blank" rel="noopener">
-          ⬇ Download marker PNG (current size)
+        Open in your slicer, print <em>marker_base</em> in white and <em>marker_pattern</em> in black (filament change). Place flat next to the hole.<br>
+        <a id="markerLink" href="/api/v1/fill-hole/marker.3mf?size_mm=50" download="aruco_marker.3mf">
+          ⬇ Download marker 3MF (current size)
         </a>
       </div>
     </div>
@@ -294,7 +294,7 @@ function paintPxRatio() {
 function updateMarkerLink() {
   const v = parseFloat(markerSize.value);
   if (Number.isFinite(v) && v > 0) {
-    markerLink.href = `/api/v1/fill-hole/marker.png?size_mm=${v}`;
+    markerLink.href = `/api/v1/fill-hole/marker.3mf?size_mm=${v}`;
   }
 }
 markerSize.addEventListener('input', updateMarkerLink);
